@@ -54,6 +54,7 @@ extern void ProfileSetFunctionIDInPlatformSpecificHandle(void * pPlatformSpecifi
 class ProfileArgIterator
 {
 private:
+    int         m_getArgAddrCounter;
     void        *m_handle;
     ArgIterator  m_argIterator;
 

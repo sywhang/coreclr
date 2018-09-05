@@ -117,6 +117,7 @@ ProfileArgIterator::ProfileArgIterator(MetaSig * pSig, void * platformSpecificHa
     _ASSERTE(platformSpecificHandle != NULL);
 
     m_handle = platformSpecificHandle;
+    m_getArgAddrCounter = 0;
     PROFILE_PLATFORM_SPECIFIC_DATA* pData = (PROFILE_PLATFORM_SPECIFIC_DATA*)m_handle;
 
     // unwind a frame and get the Rsp for the profiled method to make sure it matches
@@ -227,6 +228,23 @@ LPVOID ProfileArgIterator::GetNextArgAddr()
         _ASSERTE(!"GetNextArgAddr() - arguments are not available in leave and tailcall probes");
         return NULL;
     }
+
+#ifdef UNIX_AMD64_ABI
+    if (m_getArgAddrCounter < 3)
+    {
+        m_getArgAddrCounter++;
+        switch(m_getArgAddrCounter)
+        {
+            case 1:
+                return pData->rdi;
+            case 2:
+                return pData->rsi;
+            case 3:
+                return pData->rdx;
+        }
+    }
+#endif // UNIX_AMD64_ABI
+
 
     int argOffset = m_argIterator.GetNextOffset();
 
