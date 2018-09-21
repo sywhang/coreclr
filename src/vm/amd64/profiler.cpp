@@ -271,7 +271,7 @@ LPVOID ProfileArgIterator::GetNextArgAddr()
 
     CorElementType t = m_argIterator.GetArgType();
     _ASSERTE(IS_ALIGNED(regStructOfs, sizeof(SLOT)));    
-    if (t == ELEMENT_TYPE_R4 || t == ELEMENT_TYPE_R8)
+    if (t == ELEMENT_TYPE_R4 || t == ELEMENT_TYPE_R8 || t == ELEMENT_TYPE_I4)
     {
         return (LPBYTE)&pData->flt0 + regStructOfs;
     }
