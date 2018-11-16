@@ -236,11 +236,11 @@ LPVOID ProfileArgIterator::GetNextArgAddr()
         switch(m_getArgAddrCounter)
         {
             case 1:
-                return pData->rdi;
+                return (LPVOID)pData->rdi;
             case 2:
-                return pData->rsi;
+                return (LPVOID)pData->rsi;
             case 3:
-                return pData->rdx;
+                return (LPVOID)pData->rdx;
         }
     }
 #endif // UNIX_AMD64_ABI
