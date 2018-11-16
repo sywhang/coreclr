@@ -36,18 +36,11 @@ int LinearScan::BuildLclHeap(GenTree* tree)
     //
     //  Size?                   Init Memory?    # temp regs
     //   0                          -               0
-    //   const and <=4 str instr    -             hasPspSym ? 1 : 0
-    //   const and <PageSize        No            hasPspSym ? 1 : 0
-    //   >4 ptr words               Yes           hasPspSym ? 2 : 1
-    //   Non-const                  Yes           hasPspSym ? 2 : 1
-    //   Non-const                  No            hasPspSym ? 2 : 1
-
-    bool hasPspSym;
-#if FEATURE_EH_FUNCLETS
-    hasPspSym = (compiler->lvaPSPSym != BAD_VAR_NUM);
-#else
-    hasPspSym = false;
-#endif
+    //   const and <=4 str instr    -               0
+    //   const and <PageSize        No              0
+    //   >4 ptr words               Yes             1
+    //   Non-const                  Yes             1
+    //   Non-const                  No              1
 
     GenTree* size = tree->gtGetOp1();
     int      internalIntCount;
@@ -87,18 +80,13 @@ int LinearScan::BuildLclHeap(GenTree* tree)
             {
                 internalIntCount = 1;
             }
-
-            if (hasPspSym)
-            {
-                internalIntCount++;
-            }
         }
     }
     else
     {
-        // target (regCnt) + tmp + [psp]
+        // target (regCnt) + tmp
         srcCount         = 1;
-        internalIntCount = hasPspSym ? 2 : 1;
+        internalIntCount = 1;
         BuildUse(size);
     }
 
@@ -287,77 +275,9 @@ int LinearScan::BuildNode(GenTree* tree)
         break;
 
         case GT_CAST:
-        {
             assert(dstCount == 1);
-
-            // Non-overflow casts to/from float/double are done using SSE2 instructions
-            // and that allow the source operand to be either a reg or memop. Given the
-            // fact that casts from small int to float/double are done as two-level casts,
-            // the source operand is always guaranteed to be of size 4 or 8 bytes.
-            var_types castToType = tree->CastToType();
-            GenTree*  castOp     = tree->gtCast.CastOp();
-            var_types castOpType = castOp->TypeGet();
-            if (tree->gtFlags & GTF_UNSIGNED)
-            {
-                castOpType = genUnsignedType(castOpType);
-            }
-
-            if (varTypeIsLong(castOpType))
-            {
-                assert((castOp->OperGet() == GT_LONG) && castOp->isContained());
-            }
-
-            // FloatToIntCast needs a temporary register
-            if (varTypeIsFloating(castOpType) && varTypeIsIntOrI(tree))
-            {
-                buildInternalFloatRegisterDefForNode(tree, RBM_ALLFLOAT);
-                setInternalRegsDelayFree = true;
-            }
-
-            Lowering::CastInfo castInfo;
-
-            // Get information about the cast.
-            Lowering::getCastDescription(tree, &castInfo);
-
-            if (castInfo.requiresOverflowCheck)
-            {
-                var_types srcType = castOp->TypeGet();
-                emitAttr  cmpSize = EA_ATTR(genTypeSize(srcType));
-
-                // If we cannot store data in an immediate for instructions,
-                // then we will need to reserve a temporary register.
-
-                if (!castInfo.signCheckOnly) // In case of only sign check, temp regs are not needeed.
-                {
-                    if (castInfo.unsignedSource || castInfo.unsignedDest)
-                    {
-                        // check typeMask
-                        bool canStoreTypeMask = emitter::emitIns_valid_imm_for_alu(castInfo.typeMask);
-                        if (!canStoreTypeMask)
-                        {
-                            buildInternalIntRegisterDefForNode(tree);
-                        }
-                    }
-                    else
-                    {
-                        // For comparing against the max or min value
-                        bool canStoreMaxValue =
-                            emitter::emitIns_valid_imm_for_cmp(castInfo.typeMax, INS_FLAGS_DONT_CARE);
-                        bool canStoreMinValue =
-                            emitter::emitIns_valid_imm_for_cmp(castInfo.typeMin, INS_FLAGS_DONT_CARE);
-
-                        if (!canStoreMaxValue || !canStoreMinValue)
-                        {
-                            buildInternalIntRegisterDefForNode(tree);
-                        }
-                    }
-                }
-            }
-            srcCount = BuildOperandUses(castOp);
-            buildInternalRegisterUses();
-            BuildDef(tree);
-        }
-        break;
+            srcCount = BuildCast(tree->AsCast());
+            break;
 
         case GT_JTRUE:
             srcCount = 0;

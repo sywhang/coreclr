@@ -37,7 +37,10 @@ check_include_files(sys/prctl.h HAVE_PRCTL_H)
 check_include_files(numa.h HAVE_NUMA_H)
 check_include_files(pthread_np.h HAVE_PTHREAD_NP_H)
 check_include_files("sys/auxv.h;asm/hwcap.h" HAVE_AUXV_HWCAP_H)
-check_include_files("libintl.h" HAVE_LIBINTL_H)
+
+if(NOT CMAKE_SYSTEM_NAME STREQUAL Darwin)
+  check_include_files("libintl.h" HAVE_LIBINTL_H)
+endif()
 
 if(NOT CMAKE_SYSTEM_NAME STREQUAL FreeBSD AND NOT CMAKE_SYSTEM_NAME STREQUAL NetBSD)
   set(CMAKE_REQUIRED_FLAGS "-ldl")
@@ -823,6 +826,32 @@ int main(void) {
   }
   exit(1);
 }" HAVE_COMPATIBLE_EXP)
+set(CMAKE_REQUIRED_LIBRARIES)
+set(CMAKE_REQUIRED_LIBRARIES m)
+check_cxx_source_runs("
+#include <math.h>
+#include <stdlib.h>
+
+int main(void) {
+  if (FP_ILOGB0 != -2147483648) {
+    exit(1);
+  }
+
+  exit(0);
+}" HAVE_COMPATIBLE_ILOGB0)
+set(CMAKE_REQUIRED_LIBRARIES)
+set(CMAKE_REQUIRED_LIBRARIES m)
+check_cxx_source_runs("
+#include <math.h>
+#include <stdlib.h>
+
+int main(void) {
+  if (FP_ILOGBNAN != 2147483647) {
+    exit(1);
+  }
+
+  exit(0);
+}" HAVE_COMPATIBLE_ILOGBNAN)
 set(CMAKE_REQUIRED_LIBRARIES)
 set(CMAKE_REQUIRED_LIBRARIES m)
 check_cxx_source_runs("

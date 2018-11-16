@@ -1475,17 +1475,32 @@ void EEJitManager::SetCpuInfo()
     }
 #endif // defined(_TARGET_X86_) || defined(_TARGET_AMD64_)
 
-#if defined(_TARGET_ARM64_) && defined(FEATURE_PAL)
-    PAL_GetJitCpuCapabilityFlags(&CPUCompileFlags);
-#endif
-
 #if defined(_TARGET_ARM64_)
     static ConfigDWORD fFeatureSIMD;
     if (fFeatureSIMD.val(CLRConfig::EXTERNAL_FeatureSIMD) != 0)
     {
         CPUCompileFlags.Set(CORJIT_FLAGS::CORJIT_FLAG_FEATURE_SIMD);
     }
-#endif
+#if defined(FEATURE_PAL)
+    PAL_GetJitCpuCapabilityFlags(&CPUCompileFlags);
+#elif defined(_WIN64)
+    // FP and SIMD support are enabled by default
+    CPUCompileFlags.Set(CORJIT_FLAGS::CORJIT_FLAG_HAS_ARM64_SIMD);
+    CPUCompileFlags.Set(CORJIT_FLAGS::CORJIT_FLAG_HAS_ARM64_FP);
+    // PF_ARM_V8_CRYPTO_INSTRUCTIONS_AVAILABLE (30)
+    if (IsProcessorFeaturePresent(PF_ARM_V8_CRYPTO_INSTRUCTIONS_AVAILABLE))
+    {
+        CPUCompileFlags.Set(CORJIT_FLAGS::CORJIT_FLAG_HAS_ARM64_AES);
+        CPUCompileFlags.Set(CORJIT_FLAGS::CORJIT_FLAG_HAS_ARM64_SHA1);
+        CPUCompileFlags.Set(CORJIT_FLAGS::CORJIT_FLAG_HAS_ARM64_SHA256);
+    }
+    // PF_ARM_V8_CRC32_INSTRUCTIONS_AVAILABLE (31)
+    if (IsProcessorFeaturePresent(PF_ARM_V8_CRC32_INSTRUCTIONS_AVAILABLE))
+    {
+        CPUCompileFlags.Set(CORJIT_FLAGS::CORJIT_FLAG_HAS_ARM64_CRC32);
+    }
+#endif // _WIN64
+#endif // _TARGET_ARM64_
 
     m_CPUCompileFlags = CPUCompileFlags;
 }
@@ -2296,11 +2311,6 @@ extern "C" PT_RUNTIME_FUNCTION GetRuntimeFunctionCallback(IN ULONG     ControlPc
     BEGIN_PRESERVE_LAST_ERROR;
 
 #ifdef ENABLE_CONTRACTS
-    // See comment in code:Thread::SwitchIn and SwitchOut.
-    Thread *pThread = GetThread();
-    if (!(pThread && pThread->HasThreadStateNC(Thread::TSNC_InTaskSwitch)))
-    {
-
     // Some 64-bit OOM tests use the hosting interface to re-enter the CLR via
     // RtlVirtualUnwind to track unique stacks at each failure point. RtlVirtualUnwind can
     // result in the EEJitManager taking a reader lock. This, in turn, results in a
@@ -2320,10 +2330,6 @@ extern "C" PT_RUNTIME_FUNCTION GetRuntimeFunctionCallback(IN ULONG     ControlPc
         prf = codeInfo.GetFunctionEntry();
 
     LOG((LF_EH, LL_INFO1000000, "GetRuntimeFunctionCallback(%p) returned %p\n", ControlPc, prf));
-
-#ifdef ENABLE_CONTRACTS
-    }
-#endif // ENABLE_CONTRACTS
 
     END_PRESERVE_LAST_ERROR;
 

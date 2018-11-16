@@ -5,11 +5,12 @@
 #ifndef _INTEROP_TYPES__H
 #define _INTEROP_TYPES__H
 
+#include <stddef.h>
+
 #undef INT_MIN
 #define INT_MIN	   (-2147483647 - 1)
 
 typedef char16_t WCHAR;
-typedef unsigned long DWORD;
 typedef int BOOL;
 typedef WCHAR *LPWSTR, *PWSTR;
 typedef const WCHAR *LPCWSTR, *PCWSTR;
@@ -18,13 +19,12 @@ typedef char* LPSTR;
 typedef const char* LPCSTR;
 typedef void* FARPROC;
 typedef void* HMODULE;
-typedef void* ULONG_PTR;
-typedef unsigned error_t;
+typedef int error_t;
 typedef void* LPVOID;
 typedef unsigned char BYTE;
 typedef WCHAR OLECHAR;
-
-typedef unsigned int UINT_PTR;
+typedef ptrdiff_t INT_PTR;
+typedef size_t UINT_PTR;
 
 typedef unsigned long long ULONG64;
 typedef double DOUBLE;
@@ -36,8 +36,9 @@ typedef char CHAR, *PCHAR;
 typedef unsigned short USHORT;
 typedef signed short SHORT;
 typedef unsigned short WORD, *PWORD, *LPWORD;
+typedef int LONG;
 
-typedef int*  DWORD_PTR;
+typedef size_t SIZE_T;
 
 #ifndef TRUE
 #define TRUE 1

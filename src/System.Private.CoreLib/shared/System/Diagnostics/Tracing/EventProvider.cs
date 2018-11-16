@@ -10,7 +10,10 @@ using System.Runtime.InteropServices;
 using System.Security;
 #if !CORECLR && !ES_BUILD_PN
 using System.Security.Permissions;
-#endif // !CORECLR && !ES_BUILD_PN
+#endif
+#if CORECLR && PLATFORM_WINDOWS
+using Internal.Win32;
+#endif
 using System.Threading;
 using System;
 
@@ -280,6 +283,19 @@ namespace System.Diagnostics.Tracing
                     m_allKeywordMask = allKeyword;
 
                     List<Tuple<SessionInfo, bool>> sessionsChanged = GetSessions();
+
+                    // The GetSessions() logic was here to support the idea that different ETW sessions
+                    // could have different user-defined filters.   (I believe it is currently broken but that is another matter.)
+                    // However in particular GetSessions() does not support EventPipe, only ETW, which is
+                    // the immediate problem.   We work-around establishing the invariant that we always get a
+                    // OnControllerCallback under all circumstances, even if we can't find a delta in the
+                    // ETW logic.  This fixes things for the EventPipe case.
+                    //
+                    // All this session based logic should be reviewed and likely removed, but that is a larger
+                    // change that needs more careful staging.
+                    if (sessionsChanged.Count == 0)
+                        sessionsChanged.Add(new Tuple<SessionInfo, bool>(new SessionInfo(0, 0), true));
+
                     foreach (var session in sessionsChanged)
                     {
                         int sessionChanged = session.Item1.sessionIdBit;
@@ -507,37 +523,39 @@ namespace System.Diagnostics.Tracing
 
             // Determine our session from what is in the registry.  
             string regKey = @"\Microsoft\Windows\CurrentVersion\Winevt\Publishers\{" + m_providerName + "}";
-            if (System.Runtime.InteropServices.Marshal.SizeOf(typeof(IntPtr)) == 8)
+            if (IntPtr.Size == 8)
                 regKey = @"Software" + @"\Wow6432Node" + regKey;
             else
                 regKey = @"Software" + regKey;
 
-            var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(regKey);
-            if (key != null)
+            using (var key = Registry.LocalMachine.OpenSubKey(regKey))
             {
-                foreach (string valueName in key.GetValueNames())
+                if (key != null)
                 {
-                    if (valueName.StartsWith("ControllerData_Session_", StringComparison.Ordinal))
+                    foreach (string valueName in key.GetValueNames())
                     {
-                        string strId = valueName.Substring(23);      // strip of the ControllerData_Session_
-                        int etwSessionId;
-                        if (int.TryParse(strId, out etwSessionId))
+                        if (valueName.StartsWith("ControllerData_Session_", StringComparison.Ordinal))
                         {
-                            // we need to assert this permission for partial trust scenarios
-                            (new RegistryPermission(RegistryPermissionAccess.Read, regKey)).Assert();
-                            var data = key.GetValue(valueName) as byte[];
-                            if (data != null)
+                            string strId = valueName.Substring(23);      // strip of the ControllerData_Session_
+                            int etwSessionId;
+                            if (int.TryParse(strId, out etwSessionId))
                             {
-                                var dataAsString = System.Text.Encoding.UTF8.GetString(data);
-                                int keywordIdx = dataAsString.IndexOf("EtwSessionKeyword", StringComparison.Ordinal);
-                                if (0 <= keywordIdx)
+                                // we need to assert this permission for partial trust scenarios
+                                (new RegistryPermission(RegistryPermissionAccess.Read, regKey)).Assert();
+                                var data = key.GetValue(valueName) as byte[];
+                                if (data != null)
                                 {
-                                    int startIdx = keywordIdx + 18;
-                                    int endIdx = dataAsString.IndexOf('\0', startIdx);
-                                    string keywordBitString = dataAsString.Substring(startIdx, endIdx-startIdx);
-                                    int keywordBit;
-                                    if (0 < endIdx && int.TryParse(keywordBitString, out keywordBit))
-                                        action(etwSessionId, 1L << keywordBit, ref sessionList);
+                                    var dataAsString = System.Text.Encoding.UTF8.GetString(data);
+                                    int keywordIdx = dataAsString.IndexOf("EtwSessionKeyword", StringComparison.Ordinal);
+                                    if (0 <= keywordIdx)
+                                    {
+                                        int startIdx = keywordIdx + 18;
+                                        int endIdx = dataAsString.IndexOf('\0', startIdx);
+                                        string keywordBitString = dataAsString.Substring(startIdx, endIdx-startIdx);
+                                        int keywordBit;
+                                        if (0 < endIdx && int.TryParse(keywordBitString, out keywordBit))
+                                            action(etwSessionId, 1L << keywordBit, ref sessionList);
+                                    }
                                 }
                             }
                         }
@@ -582,10 +600,10 @@ namespace System.Diagnostics.Tracing
             {
 #if (!ES_BUILD_PCL && !ES_BUILD_PN && PLATFORM_WINDOWS)
                 string regKey = @"\Microsoft\Windows\CurrentVersion\Winevt\Publishers\{" + m_providerId + "}";
-                if (System.Runtime.InteropServices.Marshal.SizeOf(typeof(IntPtr)) == 8)
-                    regKey = @"HKEY_LOCAL_MACHINE\Software" + @"\Wow6432Node" + regKey;
+                if (IntPtr.Size == 8)
+                    regKey = @"Software" + @"\Wow6432Node" + regKey;
                 else
-                    regKey = @"HKEY_LOCAL_MACHINE\Software" + regKey;
+                    regKey = @"Software" + regKey;
 
                 string valueName = "ControllerData_Session_" + etwSessionId.ToString(CultureInfo.InvariantCulture);
 
@@ -593,12 +611,15 @@ namespace System.Diagnostics.Tracing
 #if !CORECLR
                 (new RegistryPermission(RegistryPermissionAccess.Read, regKey)).Assert();
 #endif
-                data = Microsoft.Win32.Registry.GetValue(regKey, valueName, null) as byte[];
-                if (data != null)
+                using (var key = Registry.LocalMachine.OpenSubKey(regKey))
                 {
-                    // We only used the persisted data from the registry for updates.   
-                    command = ControllerCommand.Update;
-                    return true;
+                    data =  key?.GetValue(valueName, null) as byte[];
+                    if (data != null)
+                    {
+                        // We only used the persisted data from the registry for updates.   
+                        command = ControllerCommand.Update;
+                        return true;
+                    }
                 }
 #endif
             }

@@ -222,9 +222,6 @@ HRESULT EEConfig::Init()
 
     fLegacyNullReferenceExceptionPolicy = false;
     fLegacyUnhandledExceptionPolicy = false;
-    fLegacyComHierarchyVisibility = false;
-    fLegacyComVTableLayout = false;
-    fNewComVTableLayout = false;
 
 #ifdef FEATURE_CORRUPTING_EXCEPTIONS
     // By default, there is not pre-V4 CSE policy
@@ -345,12 +342,8 @@ HRESULT EEConfig::Init()
 #ifdef _DEBUG
     fShouldInjectFault = 0;
     testThreadAbort = 0;
-    testADUnload = 0;
 #endif
 
-#ifdef FEATURE_COMINTEROP
-    m_fComInsteadOfManagedRemoting = false;
-#endif
     m_fInteropValidatePinnedObjects = false;
     m_fInteropLogArguments = false;
 
@@ -1175,13 +1168,9 @@ HRESULT EEConfig::sync()
     fShouldInjectFault = CLRConfig::GetConfigValue(CLRConfig::INTERNAL_InjectFault);
 
     testThreadAbort = CLRConfig::GetConfigValue(CLRConfig::INTERNAL_HostTestThreadAbort);
-    testADUnload = CLRConfig::GetConfigValue(CLRConfig::INTERNAL_HostTestADUnload);
 
 #endif //_DEBUG
 
-#ifdef FEATURE_COMINTEROP
-    m_fComInsteadOfManagedRemoting = (CLRConfig::GetConfigValue(CLRConfig::EXTERNAL_ComInsteadOfManagedRemoting) != 0);
-#endif // FEATURE_COMINTEROP
     m_fInteropValidatePinnedObjects = (CLRConfig::GetConfigValue(CLRConfig::UNSUPPORTED_InteropValidatePinnedObjects) != 0);
     m_fInteropLogArguments = (CLRConfig::GetConfigValue(CLRConfig::EXTERNAL_InteropLogArguments) != 0);
 

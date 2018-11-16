@@ -70,9 +70,14 @@ include_directories(include)
 
 if(CLR_CROSS_COMPONENTS_BUILD)
     if(CMAKE_HOST_SYSTEM_PROCESSOR STREQUAL x86_64 OR CMAKE_HOST_SYSTEM_PROCESSOR STREQUAL amd64)
-        if(CLR_CMAKE_TARGET_ARCH STREQUAL "arm")
-            set(PAL_CMAKE_PLATFORM_ARCH_I386 1)
-            add_definitions(-D_X86_)
+        if(CLR_CMAKE_TARGET_ARCH STREQUAL "arm" OR CLR_CMAKE_TARGET_ARCH STREQUAL "armel")
+            if($ENV{CROSSCOMPILE} STREQUAL "1")
+                set(PAL_CMAKE_PLATFORM_ARCH_I386 1)
+                add_definitions(-D_X86_)
+            else()
+                set(PAL_CMAKE_PLATFORM_ARCH_AMD64 1)
+                add_definitions(-D_AMD64_)
+            endif()
         else()
             set(PAL_CMAKE_PLATFORM_ARCH_AMD64 1)
             add_definitions(-D_AMD64_)
@@ -225,7 +230,6 @@ set(SOURCES
   misc/strutil.cpp
   misc/sysinfo.cpp
   misc/time.cpp
-  misc/tracepointprovider.cpp
   misc/utils.cpp
   numa/numa.cpp
   objmgr/palobjbase.cpp
@@ -288,6 +292,11 @@ add_library(coreclrpal
   ${ARCH_SOURCES}
   ${PLATFORM_SOURCES}
   ${LIBUNWIND_OBJECTS}
+)
+
+add_library(tracepointprovider
+  STATIC
+  misc/tracepointprovider.cpp
 )
 
 if(CMAKE_SYSTEM_NAME STREQUAL Darwin)
@@ -396,4 +405,4 @@ if(FEATURE_EVENT_TRACE)
 endif(FEATURE_EVENT_TRACE)
 
 # Install the static PAL library for VS
-install (TARGETS coreclrpal DESTINATION lib)
+_install (TARGETS coreclrpal DESTINATION lib)

@@ -335,6 +335,15 @@ void emitIns_R_R_A(instruction ins, emitAttr attr, regNumber reg1, regNumber reg
 
 void emitIns_R_R_AR(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber base, int offs);
 
+void emitIns_R_AR_R(instruction ins,
+                    emitAttr    attr,
+                    regNumber   reg1,
+                    regNumber   reg2,
+                    regNumber   base,
+                    regNumber   index,
+                    int         scale,
+                    int         offs);
+
 void emitIns_R_R_C(
     instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, CORINFO_FIELD_HANDLE fldHnd, int offs);
 
@@ -503,22 +512,6 @@ enum EmitCallType
 // clang-format off
 void emitIns_Call(EmitCallType          callType,
                   CORINFO_METHOD_HANDLE methHnd,
-                  CORINFO_SIG_INFO*     sigInfo, // used to report call sites to the EE
-                  void*                 addr,
-                  ssize_t               argSize,
-                  emitAttr              retSize
-                  MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(emitAttr secondRetSize),
-                  VARSET_VALARG_TP      ptrVars,
-                  regMaskTP             gcrefRegs,
-                  regMaskTP             byrefRegs,
-                  GenTreeIndir*         indir,
-                  bool                  isJump = false,
-                  bool                  isNoGC = false);
-// clang-format on
-
-// clang-format off
-void emitIns_Call(EmitCallType          callType,
-                  CORINFO_METHOD_HANDLE methHnd,
                   INDEBUG_LDISASM_COMMA(CORINFO_SIG_INFO* sigInfo) // used to report call sites to the EE
                   void*                 addr,
                   ssize_t               argSize,
@@ -532,8 +525,7 @@ void emitIns_Call(EmitCallType          callType,
                   regNumber             xreg     = REG_NA,
                   unsigned              xmul     = 0,
                   ssize_t               disp     = 0,
-                  bool                  isJump   = false,
-                  bool                  isNoGC   = false);
+                  bool                  isJump   = false);
 // clang-format on
 
 #ifdef _TARGET_AMD64_

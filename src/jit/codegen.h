@@ -122,11 +122,6 @@ private:
     void genCodeForLockAdd(GenTreeOp* node);
 #endif
 
-    //-------------------------------------------------------------------------
-    // Register-related methods
-
-    void rsInit();
-
 #ifdef REG_OPT_RSVD
     // On some targets such as the ARM we may need to have an extra reserved register
     //  that is used when addressing stack based locals and stack based temps.
@@ -233,8 +228,6 @@ protected:
 
 #ifdef DEBUG
     static const char* genSizeStr(emitAttr size);
-
-    void genStressRegs(GenTree* tree);
 #endif // DEBUG
 
     void genCodeForBBlist();
@@ -425,8 +418,7 @@ protected:
                      MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(emitAttr secondRetSize),
                      IL_OFFSETX            ilOffset,
                      regNumber             base   = REG_NA,
-                     bool                  isJump = false,
-                     bool                  isNoGC = false);
+                     bool                  isJump = false);
     // clang-format on
 
     // clang-format off
@@ -554,8 +546,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
                          Compiler::siVarLoc& loc);
 
     void genSetScopeInfo();
-
-    void genRemoveBBsection(BasicBlock* head, BasicBlock* tail);
 
 protected:
     /*
@@ -765,7 +755,7 @@ protected:
 
     void genSetRegToConst(regNumber targetReg, var_types targetType, GenTree* tree);
     void genCodeForTreeNode(GenTree* treeNode);
-    void genCodeForBinary(GenTree* treeNode);
+    void genCodeForBinary(GenTreeOp* treeNode);
 
 #if defined(_TARGET_X86_)
     void genCodeForLongUMod(GenTreeOp* node);
@@ -789,7 +779,78 @@ protected:
     void genLongToIntCast(GenTree* treeNode);
 #endif
 
-    void genIntToIntCast(GenTree* treeNode);
+    struct GenIntCastDesc
+    {
+        enum CheckKind
+        {
+            CHECK_NONE,
+            CHECK_SMALL_INT_RANGE,
+            CHECK_POSITIVE,
+#ifdef _TARGET_64BIT_
+            CHECK_UINT_RANGE,
+            CHECK_POSITIVE_INT_RANGE,
+            CHECK_INT_RANGE,
+#endif
+        };
+
+        enum ExtendKind
+        {
+            COPY,
+            ZERO_EXTEND_SMALL_INT,
+            SIGN_EXTEND_SMALL_INT,
+#ifdef _TARGET_64BIT_
+            ZERO_EXTEND_INT,
+            SIGN_EXTEND_INT,
+#endif
+        };
+
+    private:
+        CheckKind  m_checkKind;
+        unsigned   m_checkSrcSize;
+        int        m_checkSmallIntMin;
+        int        m_checkSmallIntMax;
+        ExtendKind m_extendKind;
+        unsigned   m_extendSrcSize;
+
+    public:
+        GenIntCastDesc(GenTreeCast* cast);
+
+        CheckKind CheckKind() const
+        {
+            return m_checkKind;
+        }
+
+        unsigned CheckSrcSize() const
+        {
+            assert(m_checkKind != CHECK_NONE);
+            return m_checkSrcSize;
+        }
+
+        int CheckSmallIntMin() const
+        {
+            assert(m_checkKind == CHECK_SMALL_INT_RANGE);
+            return m_checkSmallIntMin;
+        }
+
+        int CheckSmallIntMax() const
+        {
+            assert(m_checkKind == CHECK_SMALL_INT_RANGE);
+            return m_checkSmallIntMax;
+        }
+
+        ExtendKind ExtendKind() const
+        {
+            return m_extendKind;
+        }
+
+        unsigned ExtendSrcSize() const
+        {
+            return m_extendSrcSize;
+        }
+    };
+
+    void genIntCastOverflowCheck(GenTreeCast* cast, const GenIntCastDesc& desc, regNumber reg);
+    void genIntToIntCast(GenTreeCast* cast);
     void genFloatToFloatCast(GenTree* treeNode);
     void genFloatToIntCast(GenTree* treeNode);
     void genIntToFloatCast(GenTree* treeNode);
@@ -827,7 +888,6 @@ protected:
     void genSIMDZero(var_types targetType, var_types baseType, regNumber targetReg);
     void genSIMDIntrinsicInit(GenTreeSIMD* simdNode);
     void genSIMDIntrinsicInitN(GenTreeSIMD* simdNode);
-    void genSIMDIntrinsicInitArray(GenTreeSIMD* simdNode);
     void genSIMDIntrinsicUnOp(GenTreeSIMD* simdNode);
     void genSIMDIntrinsicBinOp(GenTreeSIMD* simdNode);
     void genSIMDIntrinsicRelOp(GenTreeSIMD* simdNode);
@@ -849,7 +909,6 @@ protected:
     void genSIMDExtractUpperHalf(GenTreeSIMD* simdNode, regNumber srcReg, regNumber tgtReg);
     void genSIMDIntrinsicWiden(GenTreeSIMD* simdNode);
     void genSIMDIntrinsic(GenTreeSIMD* simdNode);
-    void genSIMDCheck(GenTree* treeNode);
 
     // TYP_SIMD12 (i.e Vector3 of size 12 bytes) is not a hardware supported size and requires
     // two reads/writes on 64-bit targets. These routines abstract reading/writing of Vector3
@@ -888,6 +947,7 @@ protected:
     void genLZCNTIntrinsic(GenTreeHWIntrinsic* node);
     void genPCLMULQDQIntrinsic(GenTreeHWIntrinsic* node);
     void genPOPCNTIntrinsic(GenTreeHWIntrinsic* node);
+    void genXCNTIntrinsic(GenTreeHWIntrinsic* node, instruction ins);
     template <typename HWIntrinsicSwitchCaseBody>
     void genHWIntrinsicJumpTableFallback(NamedIntrinsic            intrinsic,
                                          regNumber                 nonConstImmReg,
@@ -975,6 +1035,7 @@ protected:
     void genCodeForIndexAddr(GenTreeIndexAddr* tree);
     void genCodeForIndir(GenTreeIndir* tree);
     void genCodeForNegNot(GenTree* tree);
+    void genCodeForBswap(GenTree* tree);
     void genCodeForLclVar(GenTreeLclVar* tree);
     void genCodeForLclFld(GenTreeLclFld* tree);
     void genCodeForStoreLclFld(GenTreeLclFld* tree);
@@ -1125,6 +1186,10 @@ protected:
 #endif // !_TARGET_X86_
 #endif // !FEATURE_PUT_STRUCT_ARG_STK
 
+#if defined(DEBUG) && defined(_TARGET_XARCH_)
+    void genStackPointerCheck(bool doStackPointerCheck, unsigned lvaStackPointerVar);
+#endif // defined(DEBUG) && defined(_TARGET_XARCH_)
+
 #ifdef DEBUG
     GenTree* lastConsumedNode;
     void genNumberOperandUse(GenTree* const operand, int& useNum) const;
@@ -1179,7 +1244,6 @@ public:
 
     void inst_IV(instruction ins, int val);
     void inst_IV_handle(instruction ins, int val);
-    void inst_FS(instruction ins, unsigned stk = 0);
 
     void inst_RV_IV(
         instruction ins, regNumber reg, target_ssize_t val, emitAttr size, insFlags flags = INS_FLAGS_DONT_CARE);
@@ -1194,18 +1258,6 @@ public:
         instruction ins, regNumber reg, TempDsc* tmp, unsigned ofs, var_types type, emitAttr size = EA_UNKNOWN);
     void inst_FS_ST(instruction ins, emitAttr size, TempDsc* tmp, unsigned ofs);
 
-    void instEmit_indCall(GenTreeCall* call,
-                          size_t       argSize,
-                          emitAttr retSize MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(emitAttr secondRetSize));
-
-    void instEmit_RM(instruction ins, GenTree* tree, GenTree* addr, unsigned offs);
-
-    void instEmit_RM_RV(instruction ins, emitAttr size, GenTree* tree, regNumber reg, unsigned offs);
-
-    void instEmit_RV_RM(instruction ins, emitAttr size, regNumber reg, GenTree* tree, unsigned offs);
-
-    void instEmit_RV_RIA(instruction ins, regNumber reg1, regNumber reg2, unsigned offs);
-
     void inst_TT(instruction ins, GenTree* tree, unsigned offs = 0, int shfv = 0, emitAttr size = EA_UNKNOWN);
 
     void inst_TT_RV(instruction ins,
@@ -1215,31 +1267,12 @@ public:
                     emitAttr    size  = EA_UNKNOWN,
                     insFlags    flags = INS_FLAGS_DONT_CARE);
 
-    void inst_TT_IV(instruction ins,
-                    GenTree*    tree,
-                    ssize_t     val,
-                    unsigned    offs  = 0,
-                    emitAttr    size  = EA_UNKNOWN,
-                    insFlags    flags = INS_FLAGS_DONT_CARE);
-
-    void inst_RV_AT(instruction ins,
-                    emitAttr    size,
-                    var_types   type,
-                    regNumber   reg,
-                    GenTree*    tree,
-                    unsigned    offs  = 0,
-                    insFlags    flags = INS_FLAGS_DONT_CARE);
-
-    void inst_AT_IV(instruction ins, emitAttr size, GenTree* baseTree, int icon, unsigned offs = 0);
-
     void inst_RV_TT(instruction ins,
                     regNumber   reg,
                     GenTree*    tree,
                     unsigned    offs  = 0,
                     emitAttr    size  = EA_UNKNOWN,
                     insFlags    flags = INS_FLAGS_DONT_CARE);
-
-    void inst_RV_TT_IV(instruction ins, regNumber reg, GenTree* tree, int val);
 
     void inst_FS_TT(instruction ins, GenTree* tree);
 
@@ -1260,8 +1293,6 @@ public:
     void inst_RV_ST(instruction ins, emitAttr size, regNumber reg, GenTree* tree);
 
     void inst_mov_RV_ST(regNumber reg, GenTree* tree);
-
-    void instGetAddrMode(GenTree* addr, regNumber* baseReg, unsigned* indScale, regNumber* indReg, unsigned* cns);
 
     void inst_set_SV_var(GenTree* tree);
 

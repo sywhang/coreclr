@@ -1405,61 +1405,6 @@ void DisplayThreadStatic (DacpModuleData* pModule, DacpMethodTableData* pMT, Dac
     ExtOut(" <<\n");
 }
 
-void DisplayContextStatic (DacpFieldDescData *pFD, size_t offset, BOOL fIsShared)
-{
-    ExtOut("\nDisplay of context static variables is not implemented yet\n");
-    /*
-    int numDomain;
-    DWORD_PTR *domainList = NULL;
-    GetDomainList (domainList, numDomain);
-    ToDestroy des0 ((void**)&domainList);
-    AppDomain vAppDomain;
-    Context vContext;
-    
-    ExtOut("    >> Domain:Value");
-    for (int i = 0; i < numDomain; i ++)
-    {
-        DWORD_PTR dwAddr = domainList[i];
-        if (dwAddr == 0) {
-            continue;
-        }
-        vAppDomain.Fill (dwAddr);
-        if (vAppDomain.m_pDefaultContext == 0)
-            continue;
-        dwAddr = (DWORD_PTR)vAppDomain.m_pDefaultContext;
-        vContext.Fill (dwAddr);
-        
-        if (fIsShared)
-            dwAddr = (DWORD_PTR)vContext.m_pSharedStaticData;
-        else
-            dwAddr = (DWORD_PTR)vContext.m_pUnsharedStaticData;
-        if (dwAddr == 0)
-            continue;
-        dwAddr += offsetof(STATIC_DATA, dataPtr);
-        dwAddr += offset;
-        if (safemove (dwAddr, dwAddr) == 0)
-            continue;
-        if (dwAddr == 0)
-            // We have not initialized this yet.
-            continue;
-        
-        dwAddr += pFD->dwOffset;
-        if (pFD->Type == ELEMENT_TYPE_CLASS
-            || pFD->Type == ELEMENT_TYPE_VALUETYPE)
-        {
-            if (safemove (dwAddr, dwAddr) == 0)
-                continue;
-        }
-        if (dwAddr == 0)
-            // We have not initialized this yet.
-            continue;
-        ExtOut(" %p:", (ULONG64)domainList[i]);
-        DisplayDataMember (pFD, dwAddr, FALSE);
-    }
-    ExtOut(" <<\n");
-    */
-}
-
 const char * ElementTypeName(unsigned type)
 {
     switch (type) {
@@ -1610,7 +1555,7 @@ void DisplayFields(CLRDATA_ADDRESS cdaMT, DacpMethodTableData *pMTD, DacpMethodT
         dwAddr = vFieldDesc.NextField;
 
         DWORD offset = vFieldDesc.dwOffset;
-        if(!((vFieldDesc.bIsThreadLocal || vFieldDesc.bIsContextLocal || fIsShared) && vFieldDesc.bIsStatic))
+        if(!((vFieldDesc.bIsThreadLocal || fIsShared) && vFieldDesc.bIsStatic))
         {
             if (!bValueClass)
             {
@@ -1649,7 +1594,7 @@ void DisplayFields(CLRDATA_ADDRESS cdaMT, DacpMethodTableData *pMTD, DacpMethodT
         
         ExtOut("%2s ", (IsElementValueType(vFieldDesc.Type)) ? "1" : "0");
 
-        if (vFieldDesc.bIsStatic && (vFieldDesc.bIsThreadLocal || vFieldDesc.bIsContextLocal))
+        if (vFieldDesc.bIsStatic && vFieldDesc.bIsThreadLocal)
         {
             numStaticFields ++;
             if (fIsShared)
@@ -1673,12 +1618,6 @@ void DisplayFields(CLRDATA_ADDRESS cdaMT, DacpMethodTableData *pMTD, DacpMethodT
                     {
                         DisplayThreadStatic(&vModule, pMTD, &vFieldDesc, fIsShared);
                     }
-                }
-                else if (vFieldDesc.bIsContextLocal)
-                {
-                    DisplayContextStatic(&vFieldDesc,
-                                         pMTFD->wContextStaticOffset,
-                                         fIsShared);
                 }
             }
     
@@ -2525,6 +2464,65 @@ BOOL IsStringObject (size_t obj)
 
     if (SUCCEEDED(GetMTOfObject(obj, &mtAddr)))
         return TO_TADDR(g_special_usefulGlobals.StringMethodTable) == mtAddr;
+
+    return FALSE;
+}
+
+BOOL IsDerivedFrom(CLRDATA_ADDRESS mtObj, __in_z LPCWSTR baseString)
+{
+    DacpMethodTableData dmtd;
+    CLRDATA_ADDRESS walkMT = mtObj;
+    while (walkMT != NULL)
+    {
+        if (dmtd.Request(g_sos, walkMT) != S_OK)
+        {
+            break;
+        }
+
+        NameForMT_s(TO_TADDR(walkMT), g_mdName, mdNameLen);
+        if (_wcscmp(baseString, g_mdName) == 0)
+        {
+            return TRUE;
+        }
+
+        walkMT = dmtd.ParentMethodTable;
+    }
+
+    return FALSE;
+}
+
+BOOL TryGetMethodDescriptorForDelegate(CLRDATA_ADDRESS delegateAddr, CLRDATA_ADDRESS* pMD)
+{
+    if (!sos::IsObject(delegateAddr, false))
+    {
+        return FALSE;
+    }
+
+    sos::Object delegateObj = TO_TADDR(delegateAddr);
+
+    for (int i = 0; i < 2; i++)
+    {
+        int offset;
+        if ((offset = GetObjFieldOffset(delegateObj.GetAddress(), delegateObj.GetMT(), i == 0 ? W("_methodPtrAux") : W("_methodPtr"))) != 0)
+        {
+            CLRDATA_ADDRESS methodPtr;
+            MOVE(methodPtr, delegateObj.GetAddress() + offset);
+            if (methodPtr != NULL)
+            {
+                if (g_sos->GetMethodDescPtrFromIP(methodPtr, pMD) == S_OK)
+                {
+                    return TRUE;
+                }
+
+                DacpCodeHeaderData codeHeaderData;
+                if (codeHeaderData.Request(g_sos, methodPtr) == S_OK)
+                {
+                    *pMD = codeHeaderData.MethodDescPtr;
+                    return TRUE;
+                }
+            }
+        }
+    }
 
     return FALSE;
 }
@@ -5515,6 +5513,7 @@ const char * const DMLFormats[] =
     "<exec cmd=\"!DumpRCW /d %s\">%s</exec>",       // DML_RCWrapper
     "<exec cmd=\"!DumpCCW /d %s\">%s</exec>",       // DML_CCWrapper
     "<exec cmd=\"!ClrStack -i %S %d\">%S</exec>",   // DML_ManagedVar
+    "<exec cmd=\"!DumpAsync -addr %s -tasks -completed -fields -stacks -roots\">%s</exec>", // DML_Async
 };
 
 void ConvertToLower(__out_ecount(len) char *buffer, size_t len)

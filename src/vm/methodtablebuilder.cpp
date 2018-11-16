@@ -774,8 +774,7 @@ void MethodTableBuilder::SetBMTData(
     bmtGCSeriesInfo *bmtGCSeries,
     bmtMethodImplInfo *bmtMethodImpl,
     const bmtGenericsInfo *bmtGenerics,
-    bmtEnumFieldInfo *bmtEnumFields,
-    bmtContextStaticInfo *bmtCSInfo)
+    bmtEnumFieldInfo *bmtEnumFields)
 {
     LIMITED_METHOD_CONTRACT;
     this->bmtAllocator = bmtAllocator;
@@ -793,7 +792,6 @@ void MethodTableBuilder::SetBMTData(
     this->bmtMethodImpl = bmtMethodImpl;
     this->bmtGenerics = bmtGenerics;
     this->bmtEnumFields = bmtEnumFields;
-    this->bmtCSInfo = bmtCSInfo;
 }
 
 //*******************************************************************************
@@ -1297,8 +1295,7 @@ MethodTableBuilder::BuildMethodTableThrowing(
         new (GetStackingAllocator()) bmtGCSeriesInfo(),
         new (GetStackingAllocator()) bmtMethodImplInfo(),
         bmtGenericsInfo,
-        new (GetStackingAllocator()) bmtEnumFieldInfo(pModule->GetMDImport()),
-        new (GetStackingAllocator()) bmtContextStaticInfo());
+        new (GetStackingAllocator()) bmtEnumFieldInfo(pModule->GetMDImport()));
 
     //Initialize structs
 
@@ -1751,7 +1748,7 @@ MethodTableBuilder::BuildMethodTableThrowing(
     // Go thru all fields and initialize their FieldDescs.
     InitializeFieldDescs(GetApproxFieldDescListRaw(), pLayoutRawFieldInfos, bmtInternal, bmtGenerics,
         bmtMetaData, bmtEnumFields, bmtError,
-        &pByValueClassCache, bmtMFDescs, bmtFP, bmtCSInfo,
+        &pByValueClassCache, bmtMFDescs, bmtFP,
         &totalDeclaredFieldSize);
 
     // Place regular static fields
@@ -3687,7 +3684,6 @@ VOID    MethodTableBuilder::InitializeFieldDescs(FieldDesc *pFieldDescList,
                                                  MethodTable *** pByValueClassCache,
                                                  bmtMethAndFieldDescs* bmtMFDescs,
                                                  bmtFieldPlacement* bmtFP,
-                                                 bmtContextStaticInfo* pbmtCSInfo,
                                                  unsigned* totalDeclaredSize)
 {
     CONTRACTL
@@ -3764,7 +3760,6 @@ VOID    MethodTableBuilder::InitializeFieldDescs(FieldDesc *pFieldDescList,
         MethodTable * pByValueClass = NULL;
         BOOL        fIsByValue = FALSE;
         BOOL        fIsThreadStatic = FALSE;
-        static const BOOL fIsContextStatic = FALSE;
         BOOL        fHasRVA = FALSE;
 
         MetaSig fsig(pMemberSignature,
@@ -3817,18 +3812,14 @@ VOID    MethodTableBuilder::InitializeFieldDescs(FieldDesc *pFieldDescList,
 
             // Do some sanity checks that we are not mixing context and thread
             // relative statics.
-            if (fHasRVA && (fIsThreadStatic || fIsContextStatic))
+            if (fHasRVA && fIsThreadStatic)
             {
                 IfFailThrow(COR_E_TYPELOAD);
             }
 
-            if ((fIsThreadStatic || fIsContextStatic || bmtFP->fHasFixedAddressValueTypes) && GetAssembly()->IsCollectible())
+            if (bmtFP->fHasFixedAddressValueTypes && GetAssembly()->IsCollectible())
             {
-                if (bmtFP->fHasFixedAddressValueTypes)
-                {
-                    BuildMethodTableThrowException(IDS_CLASSLOAD_COLLECTIBLEFIXEDVTATTR);
-                }
-                BuildMethodTableThrowException(IDS_CLASSLOAD_COLLECTIBLESPECIALSTATICS);
+                BuildMethodTableThrowException(IDS_CLASSLOAD_COLLECTIBLEFIXEDVTATTR);
             }
         }
 
@@ -4062,17 +4053,13 @@ VOID    MethodTableBuilder::InitializeFieldDescs(FieldDesc *pFieldDescList,
                 {
                     if (fIsStatic)
                     {
-                        // By-ref-like types cannot be used for static fields
+                        // Byref-like types cannot be used for static fields
                         BuildMethodTableThrowException(IDS_CLASSLOAD_BYREFLIKE_STATICFIELD);
-                    }
-                    if (!IsValueClass())
-                    {
-                        // Non-value-classes cannot contain by-ref-like instance fields
-                        BuildMethodTableThrowException(IDS_CLASSLOAD_BYREFLIKE_NOTVALUECLASSFIELD);
                     }
                     if (!bmtFP->fIsByRefLikeType)
                     {
-                        BuildMethodTableThrowException(IDS_CLASSLOAD_NOTBYREFLIKE);
+                        // Non-byref-like types cannot contain byref-like instance fields
+                        BuildMethodTableThrowException(IDS_CLASSLOAD_BYREFLIKE_INSTANCEFIELD);
                     }
                 }
 
@@ -4212,7 +4199,6 @@ VOID    MethodTableBuilder::InitializeFieldDescs(FieldDesc *pFieldDescList,
                   fIsStatic,
                   fHasRVA,
                   fIsThreadStatic,
-                  fIsContextStatic,
                   pszFieldName
                   );
 
@@ -5216,8 +5202,7 @@ MethodTableBuilder::PlaceNonVirtualMethods()
 #endif // _DEBUG
 
         if (!fCanHaveNonVtableSlots ||
-            it->GetMethodType() == METHOD_TYPE_INSTANTIATED ||
-            MayBeRemotingIntercepted(*it))
+            it->GetMethodType() == METHOD_TYPE_INSTANTIATED)
         {
             // We use slot during remoting and to map methods between generic instantiations
             // (see MethodTable::GetParallelMethodDesc). The current implementation
@@ -5575,7 +5560,7 @@ MethodTableBuilder::ProcessInexactMethodImpls()
                     continue;
 
                 // Otherwise, record the method impl discovery if the match is 
-                bmtMethodImpl->AddMethodImpl(*it, declMethod, GetStackingAllocator());
+                bmtMethodImpl->AddMethodImpl(*it, declMethod, bmtMetaData->rgMethodImplTokens[m].methodDecl, GetStackingAllocator());
             }
 
             if (!fMatchFound && bmtMetaData->rgMethodImplTokens[m].fThrowIfUnmatchedDuringInexactMethodImplProcessing)
@@ -5890,7 +5875,7 @@ MethodTableBuilder::ProcessMethodImpls()
                         BuildMethodTableThrowException(IDS_CLASSLOAD_MI_MUSTBEVIRTUAL, it.Token());
                     }
 
-                    bmtMethodImpl->AddMethodImpl(*it, declMethod, GetStackingAllocator());
+                    bmtMethodImpl->AddMethodImpl(*it, declMethod, mdDecl, GetStackingAllocator());
                 }
             }
         }
@@ -6201,6 +6186,7 @@ MethodTableBuilder::PlaceMethodImpls()
     DWORD dwMaxSlotSize = IsInterface() ? bmtMethod->dwNumberMethodImpls : bmtVT->cVirtualSlots;
 
     DWORD * slots = new (&GetThread()->m_MarshalAlloc) DWORD[dwMaxSlotSize];
+    mdToken * tokens = new (&GetThread()->m_MarshalAlloc) mdToken[dwMaxSlotSize];
     RelativePointer<MethodDesc *> * replaced = new (&GetThread()->m_MarshalAlloc) RelativePointer<MethodDesc*>[dwMaxSlotSize];
 
     DWORD iEntry = 0;
@@ -6214,6 +6200,8 @@ MethodTableBuilder::PlaceMethodImpls()
     // found on the body method desc.
     while (true)
     {   // collect information until we reach the next body
+
+        tokens[slotIndex] = bmtMethodImpl->GetDeclarationToken(iEntry);
 
         // Get the declaration part of the method impl. It will either be a token
         // (declaration is on this type) or a method desc.
@@ -6296,7 +6284,7 @@ MethodTableBuilder::PlaceMethodImpls()
         if(iEntry == bmtMethodImpl->pIndex)
         {
             // We hit the end of the list so dump the current data and leave
-            WriteMethodImplData(pCurImplMethod, slotIndex, slots, replaced);
+            WriteMethodImplData(pCurImplMethod, slotIndex, slots, tokens, replaced);
             break;
         }
         else
@@ -6306,7 +6294,7 @@ MethodTableBuilder::PlaceMethodImpls()
             if (pNextImplMethod != pCurImplMethod)
             {
                 // If we're moving on to a new body, dump the current data and reset the counter
-                WriteMethodImplData(pCurImplMethod, slotIndex, slots, replaced);
+                WriteMethodImplData(pCurImplMethod, slotIndex, slots, tokens, replaced);
                 slotIndex = 0;
             }
 
@@ -6321,6 +6309,7 @@ MethodTableBuilder::WriteMethodImplData(
     bmtMDMethod * pImplMethod, 
     DWORD         cSlots, 
     DWORD *       rgSlots, 
+    mdToken *     rgTokens,
     RelativePointer<MethodDesc *> * rgDeclMD)
 {
     STANDARD_VM_CONTRACT;
@@ -6370,12 +6359,16 @@ MethodTableBuilder::WriteMethodImplData(
                     DWORD sTmp = rgSlots[i];
                     rgSlots[i] = rgSlots[min];
                     rgSlots[min] = sTmp;
+
+                    mdToken tTmp = rgTokens[i];
+                    rgTokens[i] = rgTokens[min];
+                    rgTokens[min] = tTmp;
                 }
             }
         }
 
         // Go and set the method impl
-        pImpl->SetData(rgSlots, rgDeclMD);
+        pImpl->SetData(rgSlots, rgTokens, rgDeclMD);
 
         GetHalfBakedClass()->SetContainsMethodImpls();
     }
@@ -6516,6 +6509,7 @@ VOID MethodTableBuilder::PlaceInterfaceDeclarationOnClass(
         pDecl->GetSlotIndex(), 
         pImpl);
 
+#ifdef FEATURE_PREJIT
     if (IsCompilationProcess())
     {
         //
@@ -6527,7 +6521,8 @@ VOID MethodTableBuilder::PlaceInterfaceDeclarationOnClass(
             pDeclMT->GetWriteableDataForWrite()->SetIsOverridingInterface();
         }
     }
-    
+#endif
+
 #ifdef _DEBUG
     if (bmtInterface->dbg_fShouldInjectInterfaceDuplicates)
     {   // We injected interface duplicates
@@ -6794,8 +6789,10 @@ VOID MethodTableBuilder::AllocAndInitMethodDescs()
             }
         }
 
+#ifndef CROSSGEN_COMPILE
         if (tokenRange != currentTokenRange ||
             sizeOfMethodDescs + size > MethodDescChunk::MaxSizeOfMethodDescs)
+#endif // CROSSGEN_COMPILE
         {
             if (sizeOfMethodDescs != 0)
             {
@@ -6967,15 +6964,6 @@ MethodTableBuilder::NeedsNativeCodeSlot(bmtMDMethod * pMDMethod)
 #endif
 
     return GetModule()->IsEditAndContinueEnabled();
-}
-
-//*******************************************************************************
-BOOL
-MethodTableBuilder::MayBeRemotingIntercepted(bmtMDMethod * pMDMethod)
-{
-    LIMITED_METHOD_CONTRACT;
-
-    return FALSE;
 }
 
 //*******************************************************************************
@@ -9605,7 +9593,7 @@ void MethodTableBuilder::CheckForSystemTypes()
             {
                 // x86 by default treats the type of ByReference<T> as the actual type of its IntPtr field, see calls to
                 // ComputeInternalCorElementTypeForValueType in this file. This is a special case where the struct needs to be
-                // treated as a value type so that its field can be considered as a by-ref pointer.
+                // treated as a value type so that its field can be considered as a byref pointer.
                 _ASSERTE(pMT->GetFlag(MethodTable::enum_flag_Category_Mask) == MethodTable::enum_flag_Category_PrimitiveValueType);
                 pMT->ClearFlag(MethodTable::enum_flag_Category_Mask);
                 pMT->SetInternalCorElementType(ELEMENT_TYPE_VALUETYPE);
@@ -9686,7 +9674,7 @@ void MethodTableBuilder::CheckForSystemTypes()
         {
             // x86 by default treats the type of ByReference<T> as the actual type of its IntPtr field, see calls to
             // ComputeInternalCorElementTypeForValueType in this file. This is a special case where the struct needs to be
-            // treated as a value type so that its field can be considered as a by-ref pointer.
+            // treated as a value type so that its field can be considered as a byref pointer.
             _ASSERTE(pMT->GetFlag(MethodTable::enum_flag_Category_Mask) == MethodTable::enum_flag_Category_PrimitiveValueType);
             pMT->ClearFlag(MethodTable::enum_flag_Category_Mask);
             pMT->SetInternalCorElementType(ELEMENT_TYPE_VALUETYPE);
@@ -9795,10 +9783,7 @@ MethodTable * MethodTableBuilder::AllocateNewMT(Module *pLoaderModule,
                                          BOOL isInterface,
                                          BOOL fDynamicStatics,
                                          BOOL fHasGenericsStaticsInfo,
-                                         BOOL fNeedsRCWPerTypeData,
-                                         BOOL fNeedsRemotableMethodInfo,
-                                         BOOL fNeedsRemotingVtsInfo,
-                                         BOOL fHasContextStatics
+                                         BOOL fNeedsRCWPerTypeData
 #ifdef FEATURE_COMINTEROP
         , BOOL fHasDynamicInterfaceMap
 #endif
@@ -9843,13 +9828,10 @@ MethodTable * MethodTableBuilder::AllocateNewMT(Module *pLoaderModule,
 
     // Add space for optional members here. Same as GetOptionalMembersSize()
     cbTotalSize += MethodTable::GetOptionalMembersAllocationSize(dwMultipurposeSlotsMask,
-                                                      fNeedsRemotableMethodInfo,
                                                       fHasGenericsStaticsInfo,
                                                       FALSE, // no GuidInfo needed for canonical instantiations
                                                       FALSE, // no CCW template needed for canonical instantiations
                                                       fNeedsRCWPerTypeData,
-                                                      fNeedsRemotingVtsInfo,
-                                                      fHasContextStatics,
                                                       RidFromToken(GetCl()) >= METHODTABLE_TOKEN_OVERFLOW);
 
     // Interface map starts here
@@ -10097,11 +10079,6 @@ MethodTableBuilder::SetupMethodTable2(
                           bmtGenerics->GetNumGenericArgs(), pClass->GetDictionaryLayout())
                    : 0;
 
-
-    BOOL fHasContextStatics = FALSE;
-    BOOL fNeedsRemotableMethodInfo=FALSE;
-    BOOL fNeedsRemotingVtsInfo = FALSE;
-
 #ifdef FEATURE_COLLECTIBLE_TYPES
     BOOL fCollectible = pLoaderModule->IsCollectible();
 #endif // FEATURE_COLLECTIBLE_TYPES
@@ -10141,9 +10118,6 @@ MethodTableBuilder::SetupMethodTable2(
                                    bmtProp->fDynamicStatics,
                                    bmtProp->fGenericsStatics,
                                    fNeedsRCWPerTypeData,
-                                   fNeedsRemotableMethodInfo,
-                                   fNeedsRemotingVtsInfo,
-                                   fHasContextStatics,
 #ifdef FEATURE_COMINTEROP 
                                    fHasDynamicInterfaceMap,
 #endif
@@ -10785,39 +10759,81 @@ MethodTableBuilder::SetupMethodTable2(
 
 // Returns true if there is at least one default implementation for this interface method
 // We don't care about conflicts at this stage in order to avoid impact type load performance
-BOOL MethodTableBuilder::HasDefaultInterfaceImplementation(MethodDesc *pDeclMD)
+BOOL MethodTableBuilder::HasDefaultInterfaceImplementation(bmtRTType *pDeclType, MethodDesc *pDeclMD)
 {
     STANDARD_VM_CONTRACT;
 
 #ifdef FEATURE_DEFAULT_INTERFACES
     // If the interface method is already non-abstract, we are done
-    if (pDeclMD->IsDefaultInterfaceMethod())
+    if (!pDeclMD->IsAbstract())
         return TRUE;
 
-    MethodTable *pDeclMT = pDeclMD->GetMethodTable();
+    int targetSlot = pDeclMD->GetSlot();
 
-    // Otherwise, traverse the list of interfaces and see if there is at least one override 
-    bmtInterfaceInfo::MapIterator intIt = bmtInterface->IterateInterfaceMap();
-    for (; !intIt.AtEnd(); intIt.Next())
+    // Iterate over all the interfaces this type implements
+    bmtInterfaceEntry * pItfEntry = NULL;
+    for (DWORD i = 0; i < bmtInterface->dwInterfaceMapSize; i++)
     {
-        MethodTable *pIntfMT = intIt->GetInterfaceType()->GetMethodTable();
-        if (pIntfMT->GetClass()->ContainsMethodImpls() && pIntfMT->CanCastToInterface(pDeclMT))
+        bmtRTType * pCurItf = bmtInterface->pInterfaceMap[i].GetInterfaceType();
+
+        // Go over the methods on the interface
+        MethodTable::IntroducedMethodIterator methIt(pCurItf->GetMethodTable());
+        for (; methIt.IsValid(); methIt.Next())
         {
-            MethodTable::MethodIterator methodIt(pIntfMT);
-            for (; methodIt.IsValid(); methodIt.Next())
+            MethodDesc * pPotentialImpl = methIt.GetMethodDesc();
+
+            // If this interface method is not a MethodImpl, it can't possibly implement
+            // the interface method we are looking for
+            if (!pPotentialImpl->IsMethodImpl())
+                continue;
+
+            // Go over all the decls this MethodImpl is implementing
+            MethodImpl::Iterator it(pPotentialImpl);
+            for (; it.IsValid(); it.Next())
             {
-                MethodDesc *pMD = methodIt.GetMethodDesc();
-                if (pMD->IsMethodImpl())
+                MethodDesc *pPotentialDecl = it.GetMethodDesc();
+
+                // Check this is a decl with the right slot
+                if (pPotentialDecl->GetSlot() != targetSlot)
+                    continue;
+
+                // Find out what interface this default implementation is implementing
+                mdToken tkParent;
+                IfFailThrow(GetModule()->GetMDImport()->GetParentToken(it.GetToken(), &tkParent));
+
+                // We can only load the approximate interface at this point
+                MethodTable * pPotentialInterfaceMT = ClassLoader::LoadTypeDefOrRefOrSpecThrowing(
+                    GetModule(),
+                    tkParent,
+                    &bmtGenerics->typeContext,
+                    ClassLoader::ThrowIfNotFound,
+                    ClassLoader::PermitUninstDefOrRef,
+                    ClassLoader::LoadTypes,
+                    CLASS_LOAD_APPROXPARENTS,
+                    TRUE).GetMethodTable()->GetCanonicalMethodTable();
+
+                // Is this a default implementation for the interface we are looking for?
+                if (pDeclType->GetMethodTable()->HasSameTypeDefAs(pPotentialInterfaceMT))
                 {
-                    MethodImpl::Iterator it(pMD);
-                    for (; it.IsValid(); it.Next())
+                    // If the type is not generic, matching defs are all we need
+                    if (!pDeclType->GetMethodTable()->HasInstantiation())
+                        return TRUE;
+
+                    // If this is generic, we need to compare under substitutions
+                    Substitution curItfSubs(tkParent, GetModule(), &pCurItf->GetSubstitution());
+
+                    // Type Equivalence is not respected for this comparision as you can have multiple type equivalent interfaces on a class
+                    TokenPairList newVisited = TokenPairList::AdjustForTypeEquivalenceForbiddenScope(NULL);
+                    if (MetaSig::CompareTypeDefsUnderSubstitutions(
+                        pPotentialInterfaceMT, pDeclType->GetMethodTable(),
+                        &curItfSubs, &pDeclType->GetSubstitution(),
+                        &newVisited))
                     {
-                        if (it.GetMethodDesc() == pDeclMD)
-                            return TRUE;
+                        return TRUE;
                     }
                 }
             }
-        }
+        }        
     }
 #endif // FEATURE_DEFAULT_INTERFACES
 
@@ -10900,7 +10916,7 @@ void MethodTableBuilder::VerifyVirtualMethodsImplemented(MethodTable::MethodData
                 {
                     MethodDesc *pMD = it.GetDeclMethodDesc();
 
-                    if (!HasDefaultInterfaceImplementation(pMD))
+                    if (!HasDefaultInterfaceImplementation(intIt->GetInterfaceType(), pMD))
                         BuildMethodTableThrowException(IDS_CLASSLOAD_NOTIMPLEMENTED, pMD->GetNameOnNonArrayClass());
                 }
             }
@@ -11542,7 +11558,7 @@ void MethodTableBuilder::GetCoClassAttribInfo()
 
 //*******************************************************************************
 void MethodTableBuilder::bmtMethodImplInfo::AddMethodImpl(
-    bmtMDMethod * pImplMethod, bmtMethodHandle declMethod,
+    bmtMDMethod * pImplMethod, bmtMethodHandle declMethod, mdToken declToken,
     StackingAllocator * pStackingAllocator)
 {
     STANDARD_VM_CONTRACT;
@@ -11568,7 +11584,7 @@ void MethodTableBuilder::bmtMethodImplInfo::AddMethodImpl(
         rgEntries = rgEntriesNew;
         cMaxIndex = newEntriesCount;
     }
-    rgEntries[pIndex++] = Entry(pImplMethod, declMethod);
+    rgEntries[pIndex++] = Entry(pImplMethod, declMethod, declToken);
 }
 
 //*******************************************************************************

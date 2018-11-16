@@ -20,7 +20,7 @@ private:
         return (t / l);
     }
     template<VARTYPE E>
-    HRESULT Mean(SAFEARRAY *d, long *l, double *r)
+    HRESULT Mean(SAFEARRAY *d, int *l, double *r)
     {
         HRESULT hr;
 
@@ -73,8 +73,8 @@ private:
     }
 
 public: // IArrayTesting
-    DEF_RAWFUNC(Mean_Byte_LP_PreLen)(
-        /*[in]*/ long len,
+    DEF_FUNC(Mean_Byte_LP_PreLen)(
+        /*[in]*/ int len,
         /*[in]*/ unsigned char * d,
         /*[out,retval]*/ double * pRetVal)
     {
@@ -83,8 +83,8 @@ public: // IArrayTesting
         *pRetVal = Mean(len, d);
         return S_OK;
     }
-    DEF_RAWFUNC(Mean_Short_LP_PreLen)(
-        /*[in]*/ long len,
+    DEF_FUNC(Mean_Short_LP_PreLen)(
+        /*[in]*/ int len,
         /*[in]*/ short * d,
         /*[out,retval]*/ double * pRetVal)
     {
@@ -93,8 +93,8 @@ public: // IArrayTesting
         *pRetVal = Mean(len, d);
         return S_OK;
     }
-    DEF_RAWFUNC(Mean_UShort_LP_PreLen)(
-        /*[in]*/ long len,
+    DEF_FUNC(Mean_UShort_LP_PreLen)(
+        /*[in]*/ int len,
         /*[in]*/ unsigned short * d,
         /*[out,retval]*/ double * pRetVal)
     {
@@ -103,9 +103,9 @@ public: // IArrayTesting
         *pRetVal = Mean(len, d);
         return S_OK;
     }
-    DEF_RAWFUNC(Mean_Int_LP_PreLen)(
-        /*[in]*/ long len,
-        /*[in]*/ long * d,
+    DEF_FUNC(Mean_Int_LP_PreLen)(
+        /*[in]*/ int len,
+        /*[in]*/ int * d,
         /*[out,retval]*/ double * pRetVal)
     {
         if (pRetVal == nullptr)
@@ -113,9 +113,9 @@ public: // IArrayTesting
         *pRetVal = Mean(len, d);
         return S_OK;
     }
-    DEF_RAWFUNC(Mean_UInt_LP_PreLen)(
-        /*[in]*/ long len,
-        /*[in]*/ unsigned long * d,
+    DEF_FUNC(Mean_UInt_LP_PreLen)(
+        /*[in]*/ int len,
+        /*[in]*/ unsigned int * d,
         /*[out,retval]*/ double * pRetVal)
     {
         if (pRetVal == nullptr)
@@ -123,8 +123,8 @@ public: // IArrayTesting
         *pRetVal = Mean(len, d);
         return S_OK;
     }
-    DEF_RAWFUNC(Mean_Long_LP_PreLen)(
-        /*[in]*/ long len,
+    DEF_FUNC(Mean_Long_LP_PreLen)(
+        /*[in]*/ int len,
         /*[in]*/ __int64 * d,
         /*[out,retval]*/ double * pRetVal)
     {
@@ -133,8 +133,8 @@ public: // IArrayTesting
         *pRetVal = Mean(len, d);
         return S_OK;
     }
-    DEF_RAWFUNC(Mean_ULong_LP_PreLen)(
-        /*[in]*/ long len,
+    DEF_FUNC(Mean_ULong_LP_PreLen)(
+        /*[in]*/ int len,
         /*[in]*/ unsigned __int64 * d,
         /*[out,retval]*/ double * pRetVal)
     {
@@ -143,8 +143,8 @@ public: // IArrayTesting
         *pRetVal = Mean(len, d);
         return S_OK;
     }
-    DEF_RAWFUNC(Mean_Float_LP_PreLen)(
-        /*[in]*/ long len,
+    DEF_FUNC(Mean_Float_LP_PreLen)(
+        /*[in]*/ int len,
         /*[in]*/ float * d,
         /*[out,retval]*/ double * pRetVal)
     {
@@ -153,8 +153,8 @@ public: // IArrayTesting
         *pRetVal = Mean(len, d);
         return S_OK;
     }
-    DEF_RAWFUNC(Mean_Double_LP_PreLen)(
-        /*[in]*/ long len,
+    DEF_FUNC(Mean_Double_LP_PreLen)(
+        /*[in]*/ int len,
         /*[in]*/ double * d,
         /*[out,retval]*/ double * pRetVal)
     {
@@ -163,9 +163,9 @@ public: // IArrayTesting
         *pRetVal = Mean(len, d);
         return S_OK;
     }
-    DEF_RAWFUNC(Mean_Byte_LP_PostLen)(
+    DEF_FUNC(Mean_Byte_LP_PostLen)(
         /*[in]*/ unsigned char * d,
-        /*[in]*/ long len,
+        /*[in]*/ int len,
         /*[out,retval]*/ double * pRetVal)
     {
         if (pRetVal == nullptr)
@@ -173,9 +173,9 @@ public: // IArrayTesting
         *pRetVal = Mean(len, d);
         return S_OK;
     }
-    DEF_RAWFUNC(Mean_Short_LP_PostLen)(
+    DEF_FUNC(Mean_Short_LP_PostLen)(
         /*[in]*/ short * d,
-        /*[in]*/ long len,
+        /*[in]*/ int len,
         /*[out,retval]*/ double * pRetVal)
     {
         if (pRetVal == nullptr)
@@ -183,9 +183,9 @@ public: // IArrayTesting
         *pRetVal = Mean(len, d);
         return S_OK;
     }
-    DEF_RAWFUNC(Mean_UShort_LP_PostLen)(
+    DEF_FUNC(Mean_UShort_LP_PostLen)(
         /*[in]*/ unsigned short * d,
-        /*[in]*/ long len,
+        /*[in]*/ int len,
         /*[out,retval]*/ double * pRetVal)
     {
         if (pRetVal == nullptr)
@@ -193,9 +193,9 @@ public: // IArrayTesting
         *pRetVal = Mean(len, d);
         return S_OK;
     }
-    DEF_RAWFUNC(Mean_Int_LP_PostLen)(
-        /*[in]*/ long * d,
-        /*[in]*/ long len,
+    DEF_FUNC(Mean_Int_LP_PostLen)(
+        /*[in]*/ int * d,
+        /*[in]*/ int len,
         /*[out,retval]*/ double * pRetVal)
     {
         if (pRetVal == nullptr)
@@ -203,9 +203,9 @@ public: // IArrayTesting
         *pRetVal = Mean(len, d);
         return S_OK;
     }
-    DEF_RAWFUNC(Mean_UInt_LP_PostLen)(
-        /*[in]*/ unsigned long * d,
-        /*[in]*/ long len,
+    DEF_FUNC(Mean_UInt_LP_PostLen)(
+        /*[in]*/ unsigned int * d,
+        /*[in]*/ int len,
         /*[out,retval]*/ double * pRetVal)
     {
         if (pRetVal == nullptr)
@@ -213,9 +213,9 @@ public: // IArrayTesting
         *pRetVal = Mean(len, d);
         return S_OK;
     }
-    DEF_RAWFUNC(Mean_Long_LP_PostLen)(
+    DEF_FUNC(Mean_Long_LP_PostLen)(
         /*[in]*/ __int64 * d,
-        /*[in]*/ long len,
+        /*[in]*/ int len,
         /*[out,retval]*/ double * pRetVal)
     {
         if (pRetVal == nullptr)
@@ -223,9 +223,9 @@ public: // IArrayTesting
         *pRetVal = Mean(len, d);
         return S_OK;
     }
-    DEF_RAWFUNC(Mean_ULong_LP_PostLen)(
+    DEF_FUNC(Mean_ULong_LP_PostLen)(
         /*[in]*/ unsigned __int64 * d,
-        /*[in]*/ long len,
+        /*[in]*/ int len,
         /*[out,retval]*/ double * pRetVal)
     {
         if (pRetVal == nullptr)
@@ -233,9 +233,9 @@ public: // IArrayTesting
         *pRetVal = Mean(len, d);
         return S_OK;
     }
-    DEF_RAWFUNC(Mean_Float_LP_PostLen)(
+    DEF_FUNC(Mean_Float_LP_PostLen)(
         /*[in]*/ float * d,
-        /*[in]*/ long len,
+        /*[in]*/ int len,
         /*[out,retval]*/ double * pRetVal)
     {
         if (pRetVal == nullptr)
@@ -243,9 +243,9 @@ public: // IArrayTesting
         *pRetVal = Mean(len, d);
         return S_OK;
     }
-    DEF_RAWFUNC(Mean_Double_LP_PostLen)(
+    DEF_FUNC(Mean_Double_LP_PostLen)(
         /*[in]*/ double * d,
-        /*[in]*/ long len,
+        /*[in]*/ int len,
         /*[out,retval]*/ double * pRetVal)
     {
         if (pRetVal == nullptr)
@@ -253,81 +253,81 @@ public: // IArrayTesting
         *pRetVal = Mean(len, d);
         return S_OK;
     }
-    DEF_RAWFUNC(Mean_Byte_SafeArray_OutLen)(
+    DEF_FUNC(Mean_Byte_SafeArray_OutLen)(
         /*[in]*/ SAFEARRAY * d,
-        /*[out]*/ long * len,
+        /*[out]*/ int * len,
         /*[out,retval]*/ double * pRetVal)
     {
         if (pRetVal == nullptr)
             return E_POINTER;
         return Mean<VT_UI1>(d, len, pRetVal);
     }
-    DEF_RAWFUNC(Mean_Short_SafeArray_OutLen)(
+    DEF_FUNC(Mean_Short_SafeArray_OutLen)(
         /*[in]*/ SAFEARRAY * d,
-        /*[out]*/ long * len,
+        /*[out]*/ int * len,
         /*[out,retval]*/ double * pRetVal)
     {
         if (pRetVal == nullptr)
             return E_POINTER;
         return Mean<VT_I2>(d, len, pRetVal);
     }
-    DEF_RAWFUNC(Mean_UShort_SafeArray_OutLen)(
+    DEF_FUNC(Mean_UShort_SafeArray_OutLen)(
         /*[in]*/ SAFEARRAY * d,
-        /*[out]*/ long * len,
+        /*[out]*/ int * len,
         /*[out,retval]*/ double * pRetVal)
     {
         if (pRetVal == nullptr)
             return E_POINTER;
         return Mean<VT_UI2>(d, len, pRetVal);
     }
-    DEF_RAWFUNC(Mean_Int_SafeArray_OutLen)(
+    DEF_FUNC(Mean_Int_SafeArray_OutLen)(
         /*[in]*/ SAFEARRAY * d,
-        /*[out]*/ long * len,
+        /*[out]*/ int * len,
         /*[out,retval]*/ double * pRetVal)
     {
         if (pRetVal == nullptr)
             return E_POINTER;
         return Mean<VT_I4>(d, len, pRetVal);
     }
-    DEF_RAWFUNC(Mean_UInt_SafeArray_OutLen)(
+    DEF_FUNC(Mean_UInt_SafeArray_OutLen)(
         /*[in]*/ SAFEARRAY * d,
-        /*[out]*/ long * len,
+        /*[out]*/ int * len,
         /*[out,retval]*/ double * pRetVal)
     {
         if (pRetVal == nullptr)
             return E_POINTER;
         return Mean<VT_UI4>(d, len, pRetVal);
     }
-    DEF_RAWFUNC(Mean_Long_SafeArray_OutLen)(
+    DEF_FUNC(Mean_Long_SafeArray_OutLen)(
         /*[in]*/ SAFEARRAY * d,
-        /*[out]*/ long * len,
+        /*[out]*/ int * len,
         /*[out,retval]*/ double * pRetVal)
     {
         if (pRetVal == nullptr)
             return E_POINTER;
         return Mean<VT_I8>(d, len, pRetVal);
     }
-    DEF_RAWFUNC(Mean_ULong_SafeArray_OutLen)(
+    DEF_FUNC(Mean_ULong_SafeArray_OutLen)(
         /*[in]*/ SAFEARRAY * d,
-        /*[out]*/ long * len,
+        /*[out]*/ int * len,
         /*[out,retval]*/ double * pRetVal)
     {
         if (pRetVal == nullptr)
             return E_POINTER;
         return Mean<VT_UI8>(d, len, pRetVal);
     }
-    DEF_RAWFUNC(Mean_Float_SafeArray_OutLen)(
+    DEF_FUNC(Mean_Float_SafeArray_OutLen)(
         /*[in]*/ SAFEARRAY * d,
-        /*[out]*/ long * len,
+        /*[out]*/ int * len,
         /*[out,retval]*/ double * pRetVal)
     {
         if (pRetVal == nullptr)
             return E_POINTER;
         return Mean<VT_R4>(d, len, pRetVal);
     }
-    DEF_RAWFUNC(Mean_Double_SafeArray_OutLen)(
+    DEF_FUNC(Mean_Double_SafeArray_OutLen)(
         /*[in]*/ SAFEARRAY * d,
-        /*[out]*/ long * len,
+        /*[out]*/ int * len,
         /*[out,retval]*/ double * pRetVal)
     {
         if (pRetVal == nullptr)

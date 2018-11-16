@@ -121,7 +121,7 @@ RETAIL_CONFIG_DWORD_INFO(EXTERNAL_FinalizeOnShutdown, W("FinalizeOnShutdown"), D
 ///
 /// ARM
 ///
-RETAIL_CONFIG_DWORD_INFO(UNSUPPORTED_ARMEnabled, W("ARMEnabled"), (DWORD)0, "Set it to 1 to enable ARM")
+RETAIL_CONFIG_DWORD_INFO(UNSUPPORTED_ARMEnabled, W("ARMEnabled"), (DWORD)0, "AppDomain Resource Monitoring. Set to 1 to enable it")
 
 ///
 /// Jit Pitching
@@ -722,10 +722,6 @@ RETAIL_CONFIG_STRING_INFO(INTERNAL_EventNameFilter, W("EventNameFilter"), "")
 /// Interop
 ///
 CONFIG_DWORD_INFO_DIRECT_ACCESS(INTERNAL_ExposeExceptionsInCOM, W("ExposeExceptionsInCOM"), "")
-RETAIL_CONFIG_DWORD_INFO(EXTERNAL_ComInsteadOfManagedRemoting, W("PreferComInsteadOfManagedRemoting"), 0, "When communicating with a cross app domain CCW, use COM instead of managed remoting.")
-RETAIL_CONFIG_DWORD_INFO_DIRECT_ACCESS(EXTERNAL_legacyComHierarchyVisibility, W("legacyComHierarchyVisibility"), "")
-RETAIL_CONFIG_DWORD_INFO_DIRECT_ACCESS(EXTERNAL_legacyComVTableLayout, W("legacyComVTableLayout"), "")
-RETAIL_CONFIG_DWORD_INFO_DIRECT_ACCESS(EXTERNAL_newComVTableLayout, W("newComVTableLayout"), "")
 RETAIL_CONFIG_STRING_INFO_EX(EXTERNAL_PInvokeInline, W("PInvokeInline"), "", CLRConfig::REGUTIL_default)
 RETAIL_CONFIG_DWORD_INFO(UNSUPPORTED_InteropValidatePinnedObjects, W("InteropValidatePinnedObjects"), 0, "After returning from a managed-to-unmanaged interop call, validate GC heap around objects pinned by IL stubs.")
 RETAIL_CONFIG_DWORD_INFO(EXTERNAL_InteropLogArguments, W("InteropLogArguments"), 0, "Log all pinned arguments passed to an interop call")
@@ -738,9 +734,10 @@ RETAIL_CONFIG_DWORD_INFO(EXTERNAL_AllowDComReflection, W("AllowDComReflection"),
 // EventPipe
 //
 RETAIL_CONFIG_DWORD_INFO(INTERNAL_EnableEventPipe, W("EnableEventPipe"), 0, "Enable/disable event pipe.  Non-zero values enable tracing.")
-RETAIL_CONFIG_STRING_INFO(INTERNAL_EventPipeOutputFile, W("EventPipeOutputFile"), "The full path including file name for the trace file that will be written when COMPlus_EnableEventPipe&=1")
+RETAIL_CONFIG_STRING_INFO(INTERNAL_EventPipeOutputPath, W("EventPipeOutputPath"), "The full path excluding file name for the trace file that will be written when COMPlus_EnableEventPipe=1")
 RETAIL_CONFIG_STRING_INFO(INTERNAL_EventPipeConfig, W("EventPipeConfig"), "Configuration for EventPipe.")
 RETAIL_CONFIG_DWORD_INFO(INTERNAL_EventPipeRundown, W("EventPipeRundown"), 1, "Enable/disable eventpipe rundown.")
+RETAIL_CONFIG_DWORD_INFO(INTERNAL_EventPipeCircularMB, W("EventPipeCircularMB"), 1024, "The EventPipe circular buffer size in megabytes.")
 
 #ifdef FEATURE_GDBJIT
 ///
@@ -782,7 +779,6 @@ CONFIG_DWORD_INFO_EX(INTERNAL_ForceRelocs, W("ForceRelocs"), 0, "", CLRConfig::R
 CONFIG_DWORD_INFO_DIRECT_ACCESS(INTERNAL_GenerateLongJumpDispatchStubRatio, W("GenerateLongJumpDispatchStubRatio"), "Useful for testing VSD on AMD64")
 CONFIG_DWORD_INFO_EX(INTERNAL_HashStack, W("HashStack"), 0, "", CLRConfig::REGUTIL_default)
 CONFIG_DWORD_INFO(INTERNAL_HostManagerConfig, W("HostManagerConfig"), (DWORD)-1, "")
-CONFIG_DWORD_INFO(INTERNAL_HostTestADUnload, W("HostTestADUnload"), 0, "Allows setting Rude unload as default")
 CONFIG_DWORD_INFO(INTERNAL_HostTestThreadAbort, W("HostTestThreadAbort"), 0, "")
 RETAIL_CONFIG_DWORD_INFO_EX(UNSUPPORTED_IgnoreDllMainReturn, W("IgnoreDllMainReturn"), 0, "Don't check the return value of DllMain if this is set", CLRConfig::ConfigFile_ApplicationFirst)
 CONFIG_STRING_INFO(INTERNAL_InvokeHalt, W("InvokeHalt"), "Throws an assert when the given method is invoked through reflection.")

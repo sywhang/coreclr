@@ -1442,7 +1442,6 @@ public:
 
 #ifdef TRANSLATE_PDB
 
-    inline void SetIDSource(instrDesc* pID);
     void MapCode(int ilOffset, BYTE* imgDest);
     void MapFunc(int                imgOff,
                  int                procLen,
@@ -1877,10 +1876,6 @@ public:
     static emitJumpKind emitInsToJumpKind(instruction ins);
     static emitJumpKind emitReverseJumpKind(emitJumpKind jumpKind);
 
-#ifdef _TARGET_ARM_
-    static unsigned emitJumpKindCondCode(emitJumpKind jumpKind);
-#endif
-
 #ifdef DEBUG
     void emitInsSanityCheck(instrDesc* id);
 #endif
@@ -1909,7 +1904,8 @@ public:
     /*    The following is used to distinguish helper vs non-helper calls   */
     /************************************************************************/
 
-    static bool emitNoGChelper(unsigned IHX);
+    static bool emitNoGChelper(CorInfoHelpFunc helpFunc);
+    static bool emitNoGChelper(CORINFO_METHOD_HANDLE methHnd);
 
     /************************************************************************/
     /*         The following logic keeps track of live GC ref values        */
@@ -1918,6 +1914,8 @@ public:
     bool emitFullArgInfo; // full arg info (including non-ptr arg)?
     bool emitFullGCinfo;  // full GC pointer maps?
     bool emitFullyInt;    // fully interruptible code?
+
+    regMaskTP emitGetGCRegsSavedOrModified(CORINFO_METHOD_HANDLE methHnd);
 
 #if EMIT_TRACK_STACK_DEPTH
     unsigned emitCntStackDepth; // 0 in prolog/epilog, One DWORD elsewhere
@@ -1971,7 +1969,6 @@ public:
 
     /* Liveness of stack variables, and registers */
 
-    void emitUpdateLiveGCvars(int offs, BYTE* addr, bool birth);
     void emitUpdateLiveGCvars(VARSET_VALARG_TP vars, BYTE* addr);
     void emitUpdateLiveGCregs(GCtype gcType, regMaskTP regs, BYTE* addr);
 

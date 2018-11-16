@@ -334,6 +334,10 @@ bool TakesRexWPrefix(instruction ins, emitAttr attr)
         case INS_vfnmsub213sd:
         case INS_vfnmsub231sd:
         case INS_vpmaskmovq:
+        case INS_vpgatherdq:
+        case INS_vpgatherqq:
+        case INS_vgatherdpd:
+        case INS_vgatherqpd:
             return true;
         default:
             break;
@@ -2901,8 +2905,8 @@ regNumber emitter::emitInsBinary(instruction ins, emitAttr attr, GenTree* dst, G
     if (dst->isContained() || (dst->isLclField() && (dst->gtRegNum == REG_NA)) || dst->isUsedFromSpillTemp())
     {
         // dst can only be a modrm
-        assert(dst->isUsedFromMemory() || (dst->gtRegNum == REG_NA) ||
-               instrIs3opImul(ins)); // dst on 3opImul isn't really the dst
+        // dst on 3opImul isn't really the dst
+        assert(dst->isUsedFromMemory() || (dst->gtRegNum == REG_NA) || instrIs3opImul(ins));
         assert(!src->isUsedFromMemory());
 
         memOp = dst;
@@ -4115,6 +4119,74 @@ void emitter::emitIns_R_R_AR(instruction ins, emitAttr attr, regNumber reg1, reg
     id->idInsFmt(IF_RWR_RRD_ARD);
     id->idAddr()->iiaAddrMode.amBaseReg = base;
     id->idAddr()->iiaAddrMode.amIndxReg = REG_NA;
+
+    UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeRM(ins));
+    id->idCodeSize(sz);
+
+    dispIns(id);
+    emitCurIGsize += sz;
+}
+
+//------------------------------------------------------------------------
+// IsAVX2GatherInstruction: return true if the instruction is AVX2 Gather
+//
+// Arguments:
+//    ins - the instruction to check
+// Return Value:
+//    true if the instruction is AVX2 Gather
+//
+bool IsAVX2GatherInstruction(instruction ins)
+{
+    switch (ins)
+    {
+        case INS_vpgatherdd:
+        case INS_vpgatherdq:
+        case INS_vpgatherqd:
+        case INS_vpgatherqq:
+        case INS_vgatherdps:
+        case INS_vgatherdpd:
+        case INS_vgatherqps:
+        case INS_vgatherqpd:
+            return true;
+        default:
+            return false;
+    }
+}
+
+//------------------------------------------------------------------------
+// emitIns_R_AR_R: Emits an AVX2 Gather instructions
+//
+// Arguments:
+//    ins - the instruction to emit
+//    attr - the instruction operand size
+//    reg1 - the destination and first source operand
+//    reg2 - the mask operand (encoded in VEX.vvvv)
+//    base - the base register of address to load
+//    index - the index register of VSIB
+//    scale - the scale number of VSIB
+//    offs - the offset added to the memory address from base
+//
+void emitter::emitIns_R_AR_R(instruction ins,
+                             emitAttr    attr,
+                             regNumber   reg1,
+                             regNumber   reg2,
+                             regNumber   base,
+                             regNumber   index,
+                             int         scale,
+                             int         offs)
+{
+    assert(IsAVX2GatherInstruction(ins));
+
+    instrDesc* id = emitNewInstrAmd(attr, offs);
+
+    id->idIns(ins);
+    id->idReg1(reg1);
+    id->idReg2(reg2);
+
+    id->idInsFmt(IF_RWR_ARD_RRD);
+    id->idAddr()->iiaAddrMode.amBaseReg = base;
+    id->idAddr()->iiaAddrMode.amIndxReg = index;
+    id->idAddr()->iiaAddrMode.amScale   = emitEncodeSize((emitAttr)scale);
 
     UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeRM(ins));
     id->idCodeSize(sz);
@@ -6752,8 +6824,7 @@ void emitter::emitIns_Call(EmitCallType          callType,
                            regNumber             xreg,     // = REG_NA
                            unsigned              xmul,     // = 0
                            ssize_t               disp,     // = 0
-                           bool                  isJump,   // = false
-                           bool                  isNoGC)   // = false
+                           bool                  isJump)   // = false
 // clang-format on
 {
     /* Sanity check the arguments depending on callType */
@@ -6858,28 +6929,8 @@ void emitter::emitIns_Call(EmitCallType          callType,
     }
 #endif // STACK_PROBES
 
-    int argCnt;
-
-    UNATIVE_OFFSET sz;
-    instrDesc*     id;
-
-    /* This is the saved set of registers after a normal call */
-    unsigned savedSet = RBM_CALLEE_SAVED;
-
-    /* some special helper calls have a different saved set registers */
-
-    if (isNoGC)
-    {
-        // Get the set of registers that this call kills and remove it from the saved set.
-        savedSet = RBM_ALLINT & ~emitComp->compNoGCHelperCallKillSet(Compiler::eeGetHelperNum(methHnd));
-    }
-    else
-    {
-        assert(!emitNoGChelper(Compiler::eeGetHelperNum(methHnd)));
-    }
-
-    /* Trim out any callee-trashed registers from the live set */
-
+    // Trim out any callee-trashed registers from the live set.
+    regMaskTP savedSet = emitGetGCRegsSavedOrModified(methHnd);
     gcrefRegs &= savedSet;
     byrefRegs &= savedSet;
 
@@ -6897,9 +6948,6 @@ void emitter::emitIns_Call(EmitCallType          callType,
         printf("\n");
     }
 #endif
-
-    assert(argSize % REGSIZE_BYTES == 0);
-    argCnt = (int)(argSize / (int)REGSIZE_BYTES); // we need a signed-divide
 
     /* Managed RetVal: emit sequence point for the call */
     if (emitComp->opts.compDbgInfo && ilOffset != BAD_IL_OFFSET)
@@ -6920,6 +6968,11 @@ void emitter::emitIns_Call(EmitCallType          callType,
             Direct call with GC vars          9,440
             Indir. call with GC vars          5,768
      */
+
+    instrDesc* id;
+
+    assert(argSize % REGSIZE_BYTES == 0);
+    int argCnt = (int)(argSize / (int)REGSIZE_BYTES); // we need a signed-divide
 
     if (callType >= EC_FUNC_VIRTUAL)
     {
@@ -6965,7 +7018,9 @@ void emitter::emitIns_Call(EmitCallType          callType,
     }
     id->idIns(ins);
 
-    id->idSetIsNoGC(isNoGC);
+    id->idSetIsNoGC(emitNoGChelper(methHnd));
+
+    UNATIVE_OFFSET sz;
 
     // Record the address: method, indirection, or funcptr
     if (callType >= EC_FUNC_VIRTUAL)
@@ -8341,6 +8396,17 @@ void emitter::emitDispIns(
             emitDispAddrMode(id);
             break;
 
+        case IF_RWR_ARD_RRD:
+            if (ins == INS_vpgatherqd || ins == INS_vgatherqps)
+            {
+                attr = EA_16BYTE;
+            }
+            sstr = codeGen->genSizeStr(EA_ATTR(4));
+            printf("%s, %s", emitRegName(id->idReg1(), attr), sstr);
+            emitDispAddrMode(id);
+            printf(", %s", emitRegName(id->idReg2(), attr));
+            break;
+
         case IF_RWR_RRD_ARD_CNS:
         {
             printf("%s, %s, %s", emitRegName(id->idReg1(), attr), emitRegName(id->idReg2(), attr), sstr);
@@ -9223,6 +9289,7 @@ BYTE* emitter::emitOutputAM(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
             switch (id->idInsFmt())
             {
                 case IF_RWR_RRD_ARD:
+                case IF_RWR_ARD_RRD:
                 case IF_RWR_RRD_ARD_CNS:
                 case IF_RWR_RRD_ARD_RRD:
                 {
@@ -9459,9 +9526,9 @@ GOT_DSP:
 #ifdef _TARGET_AMD64_
                         // all these opcodes only take a sign-extended 4-byte immediate
                         noway_assert(opsz < 8 || ((int)cval == cval && !addc->cnsReloc));
-#else
+#else  //_TARGET_X86_
                         noway_assert(opsz <= 4);
-#endif
+#endif //_TARGET_X86_
 
                         switch (opsz)
                         {
@@ -10695,9 +10762,9 @@ BYTE* emitter::emitOutputCV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
 #ifdef _TARGET_AMD64_
             // all these opcodes only take a sign-extended 4-byte immediate
             noway_assert(opsz < 8 || ((int)cval == cval && !addc->cnsReloc));
-#else
+#else  //_TARGET_X86_
             noway_assert(opsz <= 4);
-#endif
+#endif //_TARGET_X86_
 
             switch (opsz)
             {
@@ -10950,6 +11017,32 @@ BYTE* emitter::emitOutputR(BYTE* dst, instrDesc* id)
 
             dst += emitOutputByte(dst, code);
             break;
+
+        case INS_bswap:
+        {
+            assert(size >= EA_4BYTE && size <= EA_PTRSIZE); // 16-bit BSWAP is undefined
+
+            // The Intel instruction set reference for BSWAP states that extended registers
+            // should be enabled via REX.R, but per Vol. 2A, Sec. 2.2.1.2 (see also Figure 2-7),
+            // REX.B should instead be used if the register is encoded in the opcode byte itself.
+            // Therefore the default logic of insEncodeReg012 is correct for this case.
+
+            code = insCodeRR(ins);
+
+            if (TakesRexWPrefix(ins, size))
+            {
+                code = AddRexWPrefix(ins, code);
+            }
+
+            // Register...
+            unsigned regcode = insEncodeReg012(ins, reg, size, &code);
+
+            // Output the REX prefix
+            dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
+
+            dst += emitOutputWord(dst, code | (regcode << 8));
+            break;
+        }
 
         case INS_seto:
         case INS_setno:
@@ -12881,6 +12974,15 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
                 dst     = emitOutputAM(dst, id, code | regcode);
             }
             sz = emitSizeOfInsDsc(id);
+            break;
+        }
+
+        case IF_RWR_ARD_RRD:
+        {
+            assert(IsAVX2GatherInstruction(ins));
+            code = insCodeRM(ins);
+            dst  = emitOutputAM(dst, id, code);
+            sz   = emitSizeOfInsDsc(id);
             break;
         }
 

@@ -162,7 +162,7 @@ public:
     BOOL Equals(PEImage *pImage);
 
     void GetMVID(GUID *pMvid);
-    const BOOL HasV1Metadata();
+    BOOL HasV1Metadata();
     IMDInternalImport* GetMDImport();
     BOOL MDImportLoaded();
     IMDInternalImport* GetNativeMDImport(BOOL loadAllowed = TRUE);    
@@ -198,26 +198,26 @@ public:
     const SString &GetModuleFileNameHintForDAC();
 #endif
 
-    const BOOL HasNTHeaders();
-    const BOOL HasCorHeader(); 
-    const BOOL HasReadyToRunHeader();
+    BOOL HasNTHeaders();
+    BOOL HasCorHeader();
+    BOOL HasReadyToRunHeader();
     void SetPassiveDomainOnly();
     BOOL PassiveDomainOnly();
     BOOL IsReferenceAssembly();
-#ifdef FEATURE_PREJIT  
-    const BOOL IsNativeILILOnly();
-    const BOOL IsNativeILDll();
+#ifdef FEATURE_PREJIT
+    BOOL IsNativeILILOnly();
+    BOOL IsNativeILDll();
     void GetNativeILPEKindAndMachine(DWORD* pdwKind, DWORD* pdwMachine);
     PTR_CVOID GetNativeManifestMetadata(COUNT_T *pSize = NULL);
 #endif
-    const BOOL HasDirectoryEntry(int entry);
-    const mdToken GetEntryPointToken();
-    const DWORD GetCorHeaderFlags(); 
-    const BOOL IsILOnly();
-    const BOOL IsDll();
-    const WORD GetSubsystem();
+    BOOL HasDirectoryEntry(int entry);
+    mdToken GetEntryPointToken();
+    DWORD GetCorHeaderFlags();
+    BOOL IsILOnly();
+    BOOL IsDll();
+    WORD GetSubsystem();
     BOOL  IsFileLocked();
-    const BOOL HasStrongNameSignature();
+    BOOL HasStrongNameSignature();
 
     BOOL IsIbcOptimized();
     BOOL Has32BitNTHeaders();
@@ -271,6 +271,7 @@ private:
     };
 
     static BOOL CompareImage(UPTR image1, UPTR image2);
+    static BOOL CompareIJWDataBase(UPTR base, UPTR mapping);
 
     void DECLSPEC_NORETURN ThrowFormat(HRESULT hr);
 
@@ -341,6 +342,49 @@ private:
     BOOL        m_bSignatureInfoCached;
     HRESULT   m_hrSignatureInfoStatus;
     DWORD        m_dwSignatureInfo;    
+
+    //@TODO:workaround: Remove this when we have one PEImage per mapped image,
+    //@TODO:workaround: and move the lock there
+    // This is for IJW thunk initialization, as it is no longer guaranteed
+    // that the initialization will occur under the loader lock.
+    static CrstStatic   s_ijwHashLock;
+    static PtrHashMap   *s_ijwFixupDataHash;
+
+public:
+        class IJWFixupData
+        {
+        private:
+            Crst            m_lock;
+            void           *m_base;
+            DWORD           m_flags;
+            PTR_LoaderHeap  m_DllThunkHeap;
+
+            // the fixup for the next iteration in FixupVTables
+            // we use it to make sure that we do not try to fix up the same entry twice
+            // if there was a pass that was aborted in the middle
+            COUNT_T         m_iNextFixup;
+            COUNT_T         m_iNextMethod;
+
+            enum {
+                e_FIXED_UP = 0x1
+            };
+
+        public:
+            IJWFixupData(void *pBase);
+            ~IJWFixupData();
+            void *GetBase() { LIMITED_METHOD_CONTRACT; return m_base; }
+            Crst *GetLock() { LIMITED_METHOD_CONTRACT; return &m_lock; }
+            BOOL IsFixedUp() { LIMITED_METHOD_CONTRACT; return m_flags & e_FIXED_UP; }
+            void SetIsFixedUp() { LIMITED_METHOD_CONTRACT; m_flags |= e_FIXED_UP; }
+            PTR_LoaderHeap  GetThunkHeap();
+            void MarkMethodFixedUp(COUNT_T iFixup, COUNT_T iMethod);
+            BOOL IsMethodFixedUp(COUNT_T iFixup, COUNT_T iMethod);
+        };
+
+        static IJWFixupData *GetIJWData(void *pBase);
+        static PTR_LoaderHeap GetDllThunkHeap(void *pBase);
+        static void UnloadIJWModule(void *pBase);
+
 private:
     DWORD m_dwPEKind;
     DWORD m_dwMachine;

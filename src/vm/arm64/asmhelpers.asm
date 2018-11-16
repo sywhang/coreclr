@@ -27,7 +27,6 @@
     IMPORT GetThread
     IMPORT CreateThreadBlockThrow
     IMPORT UMThunkStubRareDisableWorker
-    IMPORT UM2MDoADCallBack
     IMPORT GetCurrentSavedRedirectContext
     IMPORT LinkFrameAndThrow
     IMPORT FixContextHandler
@@ -60,6 +59,9 @@
     IMPORT JIT_GetSharedNonGCStaticBase_Helper
     IMPORT JIT_GetSharedGCStaticBase_Helper
 
+#ifdef FEATURE_COMINTEROP
+    IMPORT CLRToCOMWorker
+#endif // FEATURE_COMINTEROP
     TEXTAREA
 
 ;; LPVOID __stdcall GetCurrentIP(void);
@@ -515,6 +517,89 @@ LNullThis
 #ifdef FEATURE_COMINTEROP
 
 ; ------------------------------------------------------------------
+; setStubReturnValue
+; w0 - size of floating point return value (MetaSig::GetFPReturnSize())
+; x1 - pointer to the return buffer in the stub frame
+    LEAF_ENTRY setStubReturnValue
+
+        cbz     w0, NoFloatingPointRetVal
+
+        ;; Float return case
+        cmp     x0, #4
+        bne     LNoFloatRetVal
+        ldr     s0, [x1]
+        ret
+LNoFloatRetVal
+
+        ;; Double return case
+        cmp     w0, #8
+        bne     LNoDoubleRetVal
+        ldr     d0, [x1]
+        ret
+LNoDoubleRetVal
+
+        cmp     w0, #16
+        bne     LNoFloatHFARetVal
+        ldp     s0, s1, [x1]
+        ldp     s2, s3, [x1, #8]
+        ret
+LNoFloatHFARetVal
+
+        cmp     w0, #32
+        bne     LNoDoubleHFARetVal
+        ldp     d0, d1, [x1]
+        ldp     d2, d3, [x1, #16]
+        ret
+LNoDoubleHFARetVal
+
+        EMIT_BREAKPOINT ; Unreachable
+
+NoFloatingPointRetVal
+
+        ;; Restore the return value from retbuf
+        ldr     x0, [x1]
+        ldr     x1, [x1, #8]
+        ret
+
+    LEAF_END
+
+; ------------------------------------------------------------------
+; GenericComPlusCallStub that erects a ComPlusMethodFrame and calls into the runtime
+; (CLRToCOMWorker) to dispatch rare cases of the interface call.
+;
+; On entry:
+;   x0          : 'this' object
+;   x12         : Interface MethodDesc*
+;   plus user arguments in registers and on the stack
+;
+; On exit:
+;   x0/x1/s0-s3/d0-d3 set to return value of the call as appropriate
+;
+    NESTED_ENTRY GenericComPlusCallStub
+
+        PROLOG_WITH_TRANSITION_BLOCK 0x20
+
+        add         x0, sp, #__PWTB_TransitionBlock ; pTransitionBlock
+        mov         x1, x12                         ; pMethodDesc
+
+        ; Call CLRToCOMWorker(TransitionBlock *, ComPlusCallMethodDesc *). 
+        ; This call will set up the rest of the frame (including the vfptr, the GS cookie and
+        ; linking to the thread), make the client call and return with correct registers set 
+        ; (x0/x1/s0-s3/d0-d3 as appropriate).
+
+        bl          CLRToCOMWorker
+
+        ; x0 = fpRetSize
+
+        ; return value is stored before float argument registers
+        add         x1, sp, #(__PWTB_FloatArgumentRegisters - 0x20)
+        bl          setStubReturnValue
+
+        EPILOG_WITH_TRANSITION_BLOCK_RETURN
+
+    NESTED_END
+
+; ------------------------------------------------------------------
 ; COM to CLR stub called the first time a particular method is invoked.
 ;
 ; On entry:
@@ -657,12 +742,22 @@ GenericComCallStub_FirstStackAdjust     SETA GenericComCallStub_FirstStackAdjust
     cbz x0, COMToCLRDispatchHelper_RegSetup
 
     add x9, x1, #SIZEOF__ComMethodFrame
-    add x9, x9, x0, LSL #3
+
+    ; Compute number of 8 bytes slots to copy. This is done by rounding up the
+    ; dwStackSlots value to the nearest even value
+    add x0, x0, #1
+    bic x0, x0, #1
+
+    ; Compute how many slots to adjust the address to copy from. Since we
+    ; are copying 16 bytes at a time, adjust by -1 from the rounded value
+    sub x6, x0, #1
+    add x9, x9, x6, LSL #3
+
 COMToCLRDispatchHelper_StackLoop
-    ldr x8, [x9, #-8]!
-    str x8, [sp, #-8]!
-    sub x0, x0, #1
-    cbnz x0, COMToCLRDispatchHelper_StackLoop
+    ldp     x7, x8, [x9], #-16  ; post-index
+    stp     x7, x8, [sp, #-16]! ; pre-index
+    subs    x0, x0, #2
+    bne     COMToCLRDispatchHelper_StackLoop
     
 COMToCLRDispatchHelper_RegSetup
 
@@ -754,15 +849,6 @@ UMThunkStub_HaveThread
 
 UMThunkStub_InCooperativeMode
     ldr                 x12, [fp, #UMThunkStub_HiddenArg] ; x12 = UMEntryThunk*
-
-    ldr                 x0, [x19, #Thread__m_pDomain]
-
-    ; m_dwDomainId is 4 bytes so using 32-bit variant
-    ldr                 w1, [x12, #UMEntryThunk__m_dwDomainId]
-    ldr                 w0, [x0, #AppDomain__m_dwId]
-    cmp                 w0, w1
-    bne                 UMThunkStub_WrongAppDomain
-
     ldr                 x3, [x12, #UMEntryThunk__m_pUMThunkMarshInfo] ; x3 = m_pUMThunkMarshInfo
 
     ; m_cbActualArgSize is UINT32 and hence occupies 4 bytes
@@ -833,109 +919,6 @@ UMThunkStub_DoTrapReturningThreads
     add                 sp, sp, #SIZEOF__FloatArgumentRegisters
     b                   UMThunkStub_InCooperativeMode
 
-UMThunkStub_WrongAppDomain
-    ; Saving FP Args as this is read by UM2MThunk_WrapperHelper
-    sub                 sp, sp, #SIZEOF__FloatArgumentRegisters
-    SAVE_FLOAT_ARGUMENT_REGISTERS  sp, 0
-
-    ; UMEntryThunk* pUMEntry
-    ldr                 x0, [fp, #UMThunkStub_HiddenArg]
-
-    ; void * pArgs
-    add                 x2, fp, #16              
-
-    ; remaining arguments are unused
-    bl                  UM2MDoADCallBack
-
-    ; restore any integral return value(s)
-    ldp                 x0, x1, [fp, #16]
-
-    ; restore any FP or HFA return value(s)
-    RESTORE_FLOAT_ARGUMENT_REGISTERS sp, 0
-
-    b                   UMThunkStub_PostCall
-
-    NESTED_END
-
-
-; UM2MThunk_WrapperHelper(void *pThunkArgs,             // x0
-;                         int cbStackArgs,              // x1 (unused)
-;                         void *pAddr,                  // x2 (unused)
-;                         UMEntryThunk *pEntryThunk,    // x3
-;                         Thread *pThread)              // x4
-
-; pThunkArgs points to the argument registers pushed on the stack by UMThunkStub
-
-    NESTED_ENTRY UM2MThunk_WrapperHelper
-
-    PROLOG_SAVE_REG_PAIR fp, lr, #-32!
-    PROLOG_SAVE_REG      x19, #16
-
-
-    ; save pThunkArgs in non-volatile reg. It is required after return from call to ILStub
-    mov                 x19, x0  
-
-    ; ARM64TODO - Is this required by ILStub
-    mov                 x12, x3  ;                    // x12 = UMEntryThunk *
-
-    ;
-    ; Note that layout of the arguments is given by UMThunkStub frame
-    ;
-    ldr                 x3, [x3, #UMEntryThunk__m_pUMThunkMarshInfo]
-
-    ; m_cbActualArgSize is 4-byte field
-    ldr                 w2, [x3, #UMThunkMarshInfo__m_cbActualArgSize]
-    cbz                 w2, UM2MThunk_WrapperHelper_RegArgumentsSetup
-
-    ; extend to 64- bits
-    uxtw                x2, w2 
-
-    ; Source pointer. Subtracting 16 bytes due to fp & lr
-    add                 x6, x0, #(UMThunkStub_StackArgs-16) 
-
-    ; move source ptr to end of Stack Args
-    add                 x6, x6, x2 
-
-    ; Count of stack slot pairs to copy (divide by 16)
-    lsr                 x1, x2, #4
-
-    ; Is there an extra stack slot? (can happen when stack arg bytes not multiple of 16)
-    and                 x2, x2, #8
-
-    ; If yes then start source pointer from 16 byte aligned stack slot
-    add                 x6, x6, x2
-
-    ; increment stack slot pair count by 1 if x2 is not zero
-    add                 x1, x1, x2, LSR #3
-
-UM2MThunk_WrapperHelper_StackLoop
-    ldp                 x4, x5, [x6, #-16]!
-    stp                 x4, x5, [sp, #-16]!
-    subs                x1, x1, #1
-    bne                 UM2MThunk_WrapperHelper_StackLoop
-
-UM2MThunk_WrapperHelper_RegArgumentsSetup
-    ldr                 x16, [x3, #(UMThunkMarshInfo__m_pILStub)]
-
-    ; reload floating point registers
-    RESTORE_FLOAT_ARGUMENT_REGISTERS x0, -1 * (SIZEOF__FloatArgumentRegisters + 16)
-
-    ; reload argument registers
-    RESTORE_ARGUMENT_REGISTERS x0, 0
-
-    blr                 x16
-
-    ; save any integral return value(s)
-    stp                 x0, x1, [x19]
-
-    ; save any FP or HFA return value(s)
-    SAVE_FLOAT_ARGUMENT_REGISTERS x19, -1 * (SIZEOF__FloatArgumentRegisters + 16)
-
-    EPILOG_STACK_RESTORE
-    EPILOG_RESTORE_REG      x19, #16
-    EPILOG_RESTORE_REG_PAIR fp, lr, #32!
-    EPILOG_RETURN
-    
     NESTED_END
 
 #ifdef FEATURE_HIJACK

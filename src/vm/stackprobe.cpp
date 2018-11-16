@@ -93,14 +93,6 @@ void SOTolerantCode_RecoverStack(DWORD dwFlags)
         {
             pThread->DisablePreemptiveGC();
         }
-        // PerformADUnloadAction is SO_INTOLERANT, but we might be
-        // calling BEGIN_SO_TOLERANT_CODE from an entry point method
-        BEGIN_CONTRACT_VIOLATION(SOToleranceViolation);
-        BEGIN_GCX_ASSERT_COOP;
-        // We have enough stack now.  Start unload 
-        EEPolicy::PerformADUnloadAction(eRudeUnloadAppDomain, TRUE, TRUE);
-        END_GCX_ASSERT_COOP;
-        END_CONTRACT_VIOLATION;
     }
     COMPlusThrowSO();
 }
@@ -1389,16 +1381,6 @@ void BaseStackGuard::ProtectMarkerPageInDebugger()
         return;
     }
 
-#ifdef _DEBUG
-    BEGIN_GETTHREAD_ALLOWED;
-    Thread* pThread = GetThread();
-    if (pThread)
-    {
-        pThread->AddFiberInfo(Thread::ThreadTrackInfo_Escalation);
-    }
-    END_GETTHREAD_ALLOWED;
-#endif
-
     DWORD flOldProtect;
 
     LOG((LF_EH, LL_INFO100000, "BSG::PMP: m_pMarker 0x%p, value 0x%p\n", m_pMarker, *m_pMarker));
@@ -1443,16 +1425,6 @@ void BaseStackGuard::UndoPageProtectionInDebugger()
     }
 
     _ASSERTE(IsProbeGuard());
-
-#ifdef _DEBUG
-    BEGIN_GETTHREAD_ALLOWED;
-    Thread* pThread = GetThread();
-    if (pThread)
-    {
-        pThread->AddFiberInfo(Thread::ThreadTrackInfo_Escalation);
-    }
-    END_GETTHREAD_ALLOWED;
-#endif
 
     DWORD flOldProtect;
     // EEVirtualProtect installs a BoundaryStackGuard.  To avoid recursion, we call

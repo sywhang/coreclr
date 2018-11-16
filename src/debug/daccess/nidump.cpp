@@ -3519,10 +3519,6 @@ size_t NativeImageDumper::TranslateSymbol(IXCLRDisassemblySupport *dis,
                 case PRECODE_NDIRECT_IMPORT:
                     precodeName = "NDirectImportPrecode"; break;
 #endif // HAS_NDIRECT_IMPORT_PRECODE
-#ifdef HAS_REMOTING_PRECODE
-                case PRECODE_REMOTING:
-                    precodeName = "RemotingPrecode"; break;
-#endif // HAS_REMOTING_PRECODE
 #ifdef HAS_FIXUP_PRECODE
                 case PRECODE_FIXUP:
                     precodeName = "FixupPrecode"; break;
@@ -5523,7 +5519,6 @@ NativeImageDumper::EnumMnemonics s_MTFlagsLow[] =
     MTFLAG_ENTRY(GenericsMask_GenericInst),
     MTFLAG_ENTRY(GenericsMask_SharedInst),
     MTFLAG_ENTRY(GenericsMask_TypicalInst),
-    MTFLAG_ENTRY(HasRemotingVtsInfo),
     MTFLAG_ENTRY(HasVariance),
     MTFLAG_ENTRY(HasDefaultCtor),
     MTFLAG_ENTRY(HasPreciseInitCctors),
@@ -5553,17 +5548,17 @@ NativeImageDumper::EnumMnemonics s_MTFlagsHigh[] =
 
     MTFLAG_CATEGORY_ENTRY(Class),
     MTFLAG_CATEGORY_ENTRY(Unused_1),
-    MTFLAG_CATEGORY_ENTRY(MarshalByRef),
-    MTFLAG_CATEGORY_ENTRY(Contextful),
+    MTFLAG_CATEGORY_ENTRY(Unused_2),
+    MTFLAG_CATEGORY_ENTRY(Unused_3),
     MTFLAG_CATEGORY_ENTRY(ValueType),
     MTFLAG_CATEGORY_ENTRY(Nullable),
     MTFLAG_CATEGORY_ENTRY(PrimitiveValueType),
     MTFLAG_CATEGORY_ENTRY(TruePrimitive),
 
     MTFLAG_CATEGORY_ENTRY(Interface),
-    MTFLAG_CATEGORY_ENTRY(Unused_2),
-    MTFLAG_CATEGORY_ENTRY(TransparentProxy),
-    MTFLAG_CATEGORY_ENTRY(AsyncPin),
+    MTFLAG_CATEGORY_ENTRY(Unused_4),
+    MTFLAG_CATEGORY_ENTRY(Unused_5),
+    MTFLAG_CATEGORY_ENTRY(Unused_6),
 
     MTFLAG_CATEGORY_ENTRY_WITH_MASK(Array, Array_Mask),
     MTFLAG_CATEGORY_ENTRY_WITH_MASK(IfArrayThenSzArray, IfArrayThenSzArray),
@@ -5627,10 +5622,7 @@ NativeImageDumper::EnumMnemonics s_WriteableMTFlags[] =
     NativeImageDumper::EnumMnemonics(MethodTableWriteableData::enum_flag_ ## x,\
                                      W(#x))
 
-        WMTFLAG_ENTRY(RemotingConfigChecked),
-        WMTFLAG_ENTRY(RequiresManagedActivation),
         WMTFLAG_ENTRY(Unrestored),
-        WMTFLAG_ENTRY(CriticalTypePrepared),
         WMTFLAG_ENTRY(HasApproxParent),
         WMTFLAG_ENTRY(UnrestoredTypeKey),
         WMTFLAG_ENTRY(IsNotFullyLoaded),
@@ -7566,10 +7558,6 @@ void NativeImageDumper::DumpPrecode( PTR_Precode precode, PTR_Module module )
 #ifdef HAS_NDIRECT_IMPORT_PRECODE
     case PRECODE_NDIRECT_IMPORT:
         DISPLAY_PRECODE(NDirectImportPrecode); break;
-#endif
-#ifdef HAS_REMOTING_PRECODE
-    case PRECODE_REMOTING:
-        DISPLAY_PRECODE(RemotingPrecode); break;
 #endif
 #ifdef HAS_FIXUP_PRECODE
     case PRECODE_FIXUP:

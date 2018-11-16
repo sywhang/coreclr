@@ -31,6 +31,8 @@
 
     <PropertyGroup>
       <ExcludeTraits Condition="'$(ExcludeTraits)'==''">category=outerloop;category=failing</ExcludeTraits>
+      <!-- Run one assembly at a time on Linux/arm to avoid OutOfMemory (see https://github.com/dotnet/coreclr/issues/20328) -->
+      <ParallelRun Condition="'$(ParallelRun)'=='' and '$(__BuildOS)'=='Linux' and '$(__BuildArch)'=='arm'">collections</ParallelRun>
       <ParallelRun Condition="'$(ParallelRun)'==''">all</ParallelRun>
     </PropertyGroup>
     <ItemGroup>
@@ -47,6 +49,9 @@
       <XunitArgs>$(XunitArgs) -xml $(__TestRunXmlLog)</XunitArgs>
       <XunitArgs>$(XunitArgs) @(IncludeTraitsItems->'-trait %(Identity)', ' ')</XunitArgs>
       <XunitArgs>$(XunitArgs) @(ExcludeTraitsItems->'-notrait %(Identity)', ' ')</XunitArgs>
+
+      <!-- Color output doesn't work well when capturing the output in the CI system -->
+      <XunitArgs>$(XunitArgs) -nocolor</XunitArgs>
 
       <CorerunExecutable Condition="'$(RunningOnUnix)' == 'true'">$(CORE_ROOT)\corerun</CorerunExecutable>
       <CorerunExecutable Condition="'$(RunningOnUnix)' != 'true'">$(CORE_ROOT)\corerun.exe</CorerunExecutable>

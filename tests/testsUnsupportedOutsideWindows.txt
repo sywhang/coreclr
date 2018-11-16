@@ -123,6 +123,7 @@ CoreMangLib/cti/system/reflection/emit/DynMethodJumpStubTests/DynMethodJumpStubT
 CoreMangLib/system/collections/generic/hashset/Regression_Dev10_609271/Regression_Dev10_609271.sh
 CoreMangLib/system/collections/generic/hashset/Regression_Dev10_624201/Regression_Dev10_624201.sh
 GC/Coverage/smalloom/smalloom.sh
+Interop/ExecInDefAppDom/ExecInDefAppDom.sh
 Interop/COM/NETClients/Primitives/NETClientPrimitives/NETClientPrimitives.sh
 Interop/MarshalAPI/IUnknown/IUnknownTest/IUnknownTest.sh
 Interop/SizeConst/SizeConstTest/SizeConstTest.sh
@@ -336,6 +337,7 @@ JIT/Regression/VS-ia64-JIT/V1.2-M01/b15632/b15632/b15632.sh
 JIT/Regression/VS-ia64-JIT/V1.2-M02/b12011/b12011/b12011.sh
 JIT/Regression/VS-ia64-JIT/V2.0-Beta2/b410474/b410474/b410474.sh
 JIT/Regression/VS-ia64-JIT/V2.0-RTM/b286991/b286991/b286991.sh
+JIT/Directed/arglist/vararg/vararg.sh
 managed/Compilation/Compilation/Compilation.sh
 readytorun/r2rdump/R2RDumpTest/R2RDumpTest.sh
 Regressions/coreclr/0584/Test584/Test584.sh

@@ -639,13 +639,7 @@ void Thread::ClearAbortReason(BOOL pNoLock)
 
     // If there is an OBJECTHANDLE, try to clear it.
     if (oh != 0 && adid.m_dwId != 0)
-    {   // See if the domain is still valid; if so, destroy the ObjectHandle
-        AppDomainFromIDHolder ad(adid, TRUE);
-        if (!ad.IsUnloaded())
-        {   // Still a valid domain, so destroy the handle.
-            DestroyHandle(oh);
-        }
-    }
+        DestroyHandle(oh);
 }
 
 
@@ -1272,31 +1266,6 @@ BOOL Thread::IsRudeAbort()
     return (IsAbortRequested() && (m_AbortType == EEPolicy::TA_Rude));
 }
 
-BOOL Thread::IsRudeAbortOnlyForADUnload()
-{
-    CONTRACTL {
-        NOTHROW;
-        GC_NOTRIGGER;
-    }
-    CONTRACTL_END;
-
-    return (IsAbortRequested() &&
-            (m_AbortInfo & TAI_ADUnloadRudeAbort) &&
-            !(m_AbortInfo & (TAI_ThreadRudeAbort | TAI_FuncEvalRudeAbort))
-           );
-}
-
-BOOL Thread::IsRudeUnload()
-{
-    CONTRACTL {
-        NOTHROW;
-        GC_NOTRIGGER;
-    }
-    CONTRACTL_END;
-
-    return (IsAbortRequested() && (m_AbortInfo & TAI_ADUnloadRudeAbort));
-}
-
 BOOL Thread::IsFuncEvalAbort()
 {
     CONTRACTL {
@@ -1401,9 +1370,6 @@ Thread::UserAbort(ThreadAbortRequester requester,
     CONTRACTL_END;
 
     STRESS_LOG2(LF_SYNC | LF_APPDOMAIN, LL_INFO100, "UserAbort Thread %p Thread Id = %x\n", this, GetThreadId());
-#ifdef _DEBUG
-    AddFiberInfo(ThreadTrackInfo_Abort);
-#endif
 
     BOOL fHoldingThreadStoreLock = ThreadStore::HoldingThreadStore();
 
@@ -1451,33 +1417,7 @@ Thread::UserAbort(ThreadAbortRequester requester,
             GetEEPolicy()->NotifyHostOnDefaultAction(operation,action);
             break;
         case eUnloadAppDomain:
-            {
-                AppDomain *pDomain = GetDomain();
-                if (!pDomain->IsDefaultDomain())
-                {
-                    GetEEPolicy()->NotifyHostOnDefaultAction(operation,action);
-                    pDomain->EnableADUnloadWorker(EEPolicy::ADU_Safe);
-                }
-            }
-            // AD unload does not abort finalizer thread.
-            if (this != FinalizerThread::GetFinalizerThread())
-            {
-                if (this == GetThread())
-                {
-                    Join(INFINITE,TRUE);
-                }
-                return S_OK;
-            }
-            break;
         case eRudeUnloadAppDomain:
-            {
-                AppDomain *pDomain = GetDomain();
-                if (!pDomain->IsDefaultDomain())
-                {
-                    GetEEPolicy()->NotifyHostOnDefaultAction(operation,action);
-                    pDomain->EnableADUnloadWorker(EEPolicy::ADU_Rude);
-                }
-            }
             // AD unload does not abort finalizer thread.
             if (this != FinalizerThread::GetFinalizerThread())
             {
@@ -1545,13 +1485,6 @@ Thread::UserAbort(ThreadAbortRequester requester,
         m_dwAbortPoint = 1;
 #endif
 
-        if (CLRHosted() && GetAbortEndTime() != MAXULONGLONG)
-        {
-            // ToDo: Skip debugger funcval
-            // Use our helper thread to watch abort.
-            AppDomain::EnableADUnloadWorkerForThreadAbort();
-        }
-
         GCX_COOP();
 
         OBJECTREF exceptObj;
@@ -1583,7 +1516,6 @@ Thread::UserAbort(ThreadAbortRequester requester,
     {
         // A host may call ICLRTask::Abort on a critical thread.  We don't want to
         // block this thread.
-        AppDomain::EnableADUnloadWorkerForThreadAbort();
         return S_OK;
     }
 
@@ -2120,14 +2052,6 @@ LPrepareRetry:
                 SetRudeAbortEndTimeFromEEPolicy();
                 goto LRetry;
             case eUnloadAppDomain:
-                {
-                    AppDomain *pDomain = GetDomain();
-                    if (!pDomain->IsDefaultDomain())
-                    {
-                        GetEEPolicy()->NotifyHostOnTimeout(operation1, action1);
-                        pDomain->EnableADUnloadWorker(EEPolicy::ADU_Safe);
-                    }
-                }
                 // AD unload does not abort finalizer thread.
                 if (this == FinalizerThread::GetFinalizerThread())
                 {
@@ -2146,14 +2070,6 @@ LPrepareRetry:
                 }
                 break;
             case eRudeUnloadAppDomain:
-                {
-                    AppDomain *pDomain = GetDomain();
-                    if (!pDomain->IsDefaultDomain())
-                    {
-                        GetEEPolicy()->NotifyHostOnTimeout(operation1, action1);
-                        pDomain->EnableADUnloadWorker(EEPolicy::ADU_Rude);
-                    }
-                }
                 // AD unload does not abort finalizer thread.
                 if (this == FinalizerThread::GetFinalizerThread())
                 {
@@ -2284,26 +2200,6 @@ void Thread::ThreadAbortWatchDogEscalate(Thread *pThread)
         case eRudeAbortThread:
             GetEEPolicy()->NotifyHostOnTimeout(operation,action);
             pThread->UserAbort(Thread::TAR_Thread, EEPolicy::TA_Rude, INFINITE, Thread::UAC_WatchDog);
-            break;
-        case eUnloadAppDomain:
-            {
-                AppDomain *pDomain = pThread->GetDomain();
-                if (!pDomain->IsDefaultDomain())
-                {
-                    GetEEPolicy()->NotifyHostOnTimeout(operation,action);
-                    pDomain->EnableADUnloadWorker(EEPolicy::ADU_Safe);
-                }
-            }
-            break;
-        case eRudeUnloadAppDomain:
-            {
-                AppDomain *pDomain = pThread->GetDomain();
-                if (!pDomain->IsDefaultDomain())
-                {
-                    GetEEPolicy()->NotifyHostOnTimeout(operation,action);
-                    pDomain->EnableADUnloadWorker(EEPolicy::ADU_Rude);
-                }
-            }
             break;
         case eExitProcess:
         case eFastExitProcess:
@@ -2463,26 +2359,6 @@ void Thread::MarkThreadForAbort(ThreadAbortRequester requester, EEPolicy::Thread
         }
     }
 
-    if (requester & TAR_ADUnload)
-    {
-        if (abortType == EEPolicy::TA_Safe)
-        {
-            abortInfo |= TAI_ADUnloadAbort;
-        }
-        else if (abortType == EEPolicy::TA_Rude)
-        {
-            abortInfo |= TAI_ADUnloadRudeAbort;
-        }
-        else if (abortType == EEPolicy::TA_V1Compatible)
-        {
-            abortInfo |= TAI_ADUnloadV1Abort;
-        }
-        if (IsADUnloadHelperThread())
-        {
-            abortInfo |= TAI_ForADUnloadThread;
-        }
-    }
-
     if (requester & TAR_FuncEval)
     {
         if (abortType == EEPolicy::TA_Safe)
@@ -2534,13 +2410,7 @@ void Thread::MarkThreadForAbort(ThreadAbortRequester requester, EEPolicy::Thread
             {
                 m_RudeAbortEndTime = endTime;
             }
-            // We can not call into host if we are in the middle of stack overflow.
-            // And we don't need to wake up our watchdog if there is no timeout.
-            if (GetThread() == this && (requester & TAR_StackOverflow) == 0)
-        {
-            AppDomain::EnableADUnloadWorkerForThreadAbort();
         }
-    }
     }
 
     if (abortInfo == (m_AbortInfo & abortInfo))
@@ -2568,10 +2438,6 @@ void Thread::MarkThreadForAbort(ThreadAbortRequester requester, EEPolicy::Thread
 
         // The thread is asked for abort the first time
         SetAbortRequestBit();
-
-#ifdef _DEBUG
-        AddFiberInfo(ThreadTrackInfo_Abort);
-#endif
     }
     STRESS_LOG4(LF_APPDOMAIN, LL_ALWAYS, "Mark Thread %p Thread Id = %x for abort from requester %d (type %d)\n", this, GetThreadId(), requester, abortType);
 }
@@ -2658,13 +2524,6 @@ void Thread::UnmarkThreadForAbort(ThreadAbortRequester requester, BOOL fForce)
         }
     }
 
-    if (requester & TAR_ADUnload)
-    {
-        m_AbortInfo &= ~(TAI_ADUnloadAbort   |
-                         TAI_ADUnloadV1Abort |
-                         TAI_ADUnloadRudeAbort);
-    }
-
     if (requester & TAR_FuncEval)
     {
         m_AbortInfo &= ~(TAI_FuncEvalAbort   |
@@ -2709,28 +2568,9 @@ void Thread::UnmarkThreadForAbort(ThreadAbortRequester requester, BOOL fForce)
         FastInterlockAnd((DWORD*)&m_State,~(TS_AbortInitiated));
         m_fRudeAbortInitiated = FALSE;
         ResetUserInterrupted();
-
-#ifdef _DEBUG
-        AddFiberInfo(ThreadTrackInfo_Abort);
-#endif
     }
 
     STRESS_LOG3(LF_APPDOMAIN, LL_ALWAYS, "Unmark Thread %p Thread Id = %x for abort from requester %d\n", this, GetThreadId(), requester);
-}
-
-// Make sure that when AbortRequest bit is cleared, we also dec TrapReturningThreads count.
-void Thread::ResetBeginAbortedForADUnload()
-{
-    CONTRACTL
-    {
-        NOTHROW;
-        GC_NOTRIGGER;
-    }
-    CONTRACTL_END;
-
-    AbortRequestLockHolder lh(this);
-
-    m_AbortInfo &= ~TAI_ForADUnloadThread;
 }
 
 void Thread::InternalResetAbort(ThreadAbortRequester requester, BOOL fResetRudeAbort)
@@ -2746,9 +2586,6 @@ void Thread::InternalResetAbort(ThreadAbortRequester requester, BOOL fResetRudeA
 
     // managed code can not reset Rude thread abort
     UnmarkThreadForAbort(requester, fResetRudeAbort);
-#ifdef _DEBUG
-    AddFiberInfo(ThreadTrackInfo_Abort);
-#endif
 }
 
 
@@ -2762,7 +2599,7 @@ void Thread::SetAbortRequest(EEPolicy::ThreadAbortTypes abortType)
     }
     CONTRACTL_END;
 
-    MarkThreadForAbort(TAR_ADUnload, abortType);
+    MarkThreadForAbort(TAR_Thread, abortType);
 
     if (m_State & TS_Interruptible)
     {
@@ -2890,6 +2727,7 @@ void ThreadSuspend::UnlockThreadStore(BOOL bThreadDestroyed, ThreadSuspend::SUSP
         ThreadStore::s_pThreadStore->m_HoldingThread = NULL;
         ThreadStore::s_pThreadStore->m_holderthreadid.Clear();
         ThreadStore::s_pThreadStore->Leave();
+        LOG((LF_SYNC, INFO3, "Unlocked thread store\n"));
 
         // We're out of the critical area for managed/unmanaged debugging.
         if (!bThreadDestroyed && pCurThread)
@@ -2994,11 +2832,6 @@ void Thread::RareDisablePreemptiveGC()
     {
         goto Exit;
     }
-
-
-#ifdef _DEBUG
-    AddFiberInfo(ThreadTrackInfo_GCMode);
-#endif
 
     // This should NEVER be called if the TSNC_UnsafeSkipEnterCooperative bit is set!
     _ASSERTE(!(m_StateNC & TSNC_UnsafeSkipEnterCooperative) && "DisablePreemptiveGC called while the TSNC_UnsafeSkipEnterCooperative bit is set");
@@ -3212,26 +3045,6 @@ void Thread::HandleThreadAbortTimeout()
             GetEEPolicy()->NotifyHostOnTimeout(operation,action);
             MarkThreadForAbort(TAR_Thread, EEPolicy::TA_Rude);
             break;
-        case eUnloadAppDomain:
-            {
-                AppDomain *pDomain = GetDomain();
-                if (!pDomain->IsDefaultDomain())
-                {
-                    GetEEPolicy()->NotifyHostOnTimeout(operation,action);
-                    pDomain->EnableADUnloadWorker(EEPolicy::ADU_Safe);
-                }
-            }
-            break;
-        case eRudeUnloadAppDomain:
-            {
-                AppDomain *pDomain = GetDomain();
-                if (!pDomain->IsDefaultDomain())
-                {
-                    GetEEPolicy()->NotifyHostOnTimeout(operation,action);
-                    pDomain->EnableADUnloadWorker(EEPolicy::ADU_Rude);
-                }
-            }
-            break;
         case eExitProcess:
         case eFastExitProcess:
         case eRudeExitProcess:
@@ -3313,9 +3126,6 @@ void Thread::HandleThreadAbort (BOOL fForce)
             exceptObj = CLRException::GetThrowableFromException(&eeExcept);
         }
 
-#ifdef _DEBUG
-        AddFiberInfo(ThreadTrackInfo_Abort);
-#endif
         RaiseTheExceptionInternalOnly(exceptObj, FALSE);
     }
     END_SO_INTOLERANT_CODE;
@@ -3345,13 +3155,6 @@ void Thread::PreWorkForThreadAbort()
             EPolicyAction action = GetEEPolicy()->GetDefaultAction(OPR_ThreadRudeAbortInCriticalRegion, this);
             switch (action)
             {
-            case eRudeUnloadAppDomain:
-                if (!pDomain->IsDefaultDomain())
-                {
-                    GetEEPolicy()->NotifyHostOnDefaultAction(OPR_ThreadRudeAbortInCriticalRegion,action);
-                    pDomain->EnableADUnloadWorker(EEPolicy::ADU_Rude);
-                }
-                break;
             case eExitProcess:
             case eFastExitProcess:
             case eRudeExitProcess:
@@ -3456,10 +3259,6 @@ void Thread::RareEnablePreemptiveGC()
     // process and no coordination is necessary.
     if (IsAtProcessExit())
         return;
-
-#ifdef _DEBUG
-    AddFiberInfo(ThreadTrackInfo_GCMode);
-#endif
 
     // EnablePreemptiveGC already set us to preemptive mode before triggering the Rare path.
     // Force other threads to see this update, since the Rare path implies that someone else
@@ -5672,11 +5471,12 @@ bool Thread::SysSweepThreadsForDebug(bool forceSync)
         DISABLED(GC_TRIGGERS); // WaitUntilConcurrentGCComplete toggle GC mode, disabled because called by unmanaged thread
 
         // We assume that only the "real" helper thread ever calls this (not somebody doing helper thread duty).
+        PRECONDITION(ThreadStore::HoldingThreadStore());
         PRECONDITION(IsDbgHelperSpecialThread());
         PRECONDITION(GetThread() == NULL);
 
         // Iff we return true, then we have the TSL (or the aux lock used in workarounds).
-        POSTCONDITION(RETVAL == !!ThreadStore::HoldingThreadStore());
+        POSTCONDITION(ThreadStore::HoldingThreadStore());
     }
     CONTRACT_END;
 
@@ -5687,13 +5487,6 @@ bool Thread::SysSweepThreadsForDebug(bool forceSync)
     // NOTE::NOTE::NOTE::NOTE::NOTE
     // This function has parallel logic in SuspendRuntime.  Please make
     // sure to make appropriate changes there as well.
-
-    // We use ThreadSuspend::SUSPEND_FOR_DEBUGGER_SWEEP here to avoid a deadlock which
-    // can occur due to the s_hAbortEvt event.  This event causes any thread trying
-    // to take the ThreadStore lock to wait for a GC to complete.  If a thread is
-    // in SuspendEE for a GC and suspends for the debugger, then this thread will
-    // deadlock if we do not pass in SUSPEND_FOR_DEBUGGER_SWEEP here.
-    ThreadSuspend::LockThreadStore(ThreadSuspend::SUSPEND_FOR_DEBUGGER_SWEEP);
 
     // From this point until the end of the function, consider all active thread
     // suspension to be in progress.  This is mainly to give the profiler API a hint
@@ -5839,7 +5632,6 @@ Label_MarkThreadAsSynced:
 
     // The CLR is not yet synced. We release the threadstore lock and return false.
     hldSuspendRuntimeInProgress.Release();
-    ThreadSuspend::UnlockThreadStore();
 
     RETURN false;
 }
@@ -7290,7 +7082,13 @@ retry_for_debugger:
             || Thread::ThreadsAtUnsafePlaces()
 #ifdef DEBUGGING_SUPPORTED  // seriously?  When would we want to disable debugging support? :)
              || (CORDebuggerAttached() && 
-                 g_pDebugInterface->ThreadsAtUnsafePlaces())
+            // When the debugger is synchronizing, trying to perform a GC could deadlock. The GC has the
+            // threadstore lock and synchronization cannot complete until the debugger can get the 
+            // threadstore lock. However the GC can not complete until it sends the BeforeGarbageCollection
+            // event, and the event can not be sent until the debugger is synchronized. In order to break
+            // this deadlock cycle the GC must give up the threadstore lock, allow the debugger to synchronize, 
+            // then try again.
+                 (g_pDebugInterface->ThreadsAtUnsafePlaces() || g_pDebugInterface->IsSynchronizing()))
 #endif // DEBUGGING_SUPPORTED
             )
         {
@@ -7473,10 +7271,9 @@ void HandleGCSuspensionForInterruptedThread(CONTEXT *interruptedContext)
         pThread->InitRegDisplay(&regDisplay, interruptedContext, true /* validContext */);
 
         BOOL unused;
-#if defined(_TARGET_AMD64_)
+
         if (IsIPInEpilog(interruptedContext, &codeInfo, &unused))
             return;
-#endif
 
         // Use StackWalkFramesEx to find the location of the return address. This will locate the
         // return address by checking relative to the caller frame's SP, which is preferable to

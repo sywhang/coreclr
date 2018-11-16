@@ -156,6 +156,7 @@ public:
     HRESULT GetILCodeVersionNodeData(VMPTR_ILCodeVersionNode vmILCodeVersionNode, DacSharedReJitInfo* pData);
     HRESULT GetDefinesBitField(ULONG32 *pDefines);
     HRESULT GetMDStructuresVersion(ULONG32* pMDStructuresVersion);
+    HRESULT EnableGCNotificationEvents(BOOL fEnable);
 
 private:
     void TypeHandleToExpandedTypeInfoImpl(AreValueTypesBoxed              boxed,
@@ -304,8 +305,8 @@ public:
                              TypeParamsList *    pGenericTypeParams);
 
     // Get the target field address of a context or thread local static. 
-    CORDB_ADDRESS GetThreadOrContextStaticAddress(VMPTR_FieldDesc vmField,
-                                                  VMPTR_Thread    vmRuntimeThread);
+    CORDB_ADDRESS GetThreadStaticAddress(VMPTR_FieldDesc vmField,
+                                         VMPTR_Thread    vmRuntimeThread);
 
     // Get the target field address of a collectible types static. 
     CORDB_ADDRESS GetCollectibleTypeStaticAddress(VMPTR_FieldDesc vmField,

@@ -174,6 +174,11 @@ public:
         DWORDLONG fieldAddress;
         DWORD     fieldValue;
     };
+    struct Agnostic_GetStaticFieldCurrentClass
+    {
+        DWORDLONG classHandle;
+        bool      isSpeculative;
+    };
     struct Agnostic_CORINFO_RESOLVED_TOKEN
     {
         Agnostic_CORINFO_RESOLVED_TOKENin inValue;
@@ -696,6 +701,14 @@ public:
     void dmpGetClassSize(DWORDLONG key, DWORD val);
     unsigned repGetClassSize(CORINFO_CLASS_HANDLE cls);
 
+    void recGetHeapClassSize(CORINFO_CLASS_HANDLE cls, unsigned result);
+    void dmpGetHeapClassSize(DWORDLONG key, DWORD val);
+    unsigned repGetHeapClassSize(CORINFO_CLASS_HANDLE cls);
+
+    void recCanAllocateOnStack(CORINFO_CLASS_HANDLE cls, BOOL result);
+    void dmpCanAllocateOnStack(DWORDLONG key, DWORD val);
+    BOOL repCanAllocateOnStack(CORINFO_CLASS_HANDLE cls);
+
     void recGetClassNumInstanceFields(CORINFO_CLASS_HANDLE cls, unsigned result);
     void dmpGetClassNumInstanceFields(DWORDLONG key, DWORD value);
     unsigned repGetClassNumInstanceFields(CORINFO_CLASS_HANDLE cls);
@@ -914,6 +927,10 @@ public:
     void recGetFieldAddress(CORINFO_FIELD_HANDLE field, void** ppIndirection, void* result, CorInfoType cit);
     void dmpGetFieldAddress(DWORDLONG key, const Agnostic_GetFieldAddress& value);
     void* repGetFieldAddress(CORINFO_FIELD_HANDLE field, void** ppIndirection);
+
+    void recGetStaticFieldCurrentClass(CORINFO_FIELD_HANDLE field, bool isSpeculative, CORINFO_CLASS_HANDLE result);
+    void dmpGetStaticFieldCurrentClass(DWORDLONG key, const Agnostic_GetStaticFieldCurrentClass& value);
+    CORINFO_CLASS_HANDLE repGetStaticFieldCurrentClass(CORINFO_FIELD_HANDLE field, bool* pIsSpeculative);
 
     void recGetClassGClayout(CORINFO_CLASS_HANDLE cls, BYTE* gcPtrs, unsigned len, unsigned result);
     void dmpGetClassGClayout(DWORDLONG key, const Agnostic_GetClassGClayout& value);
@@ -1275,21 +1292,41 @@ public:
     void dmpGetStringConfigValue(DWORD nameIndex, DWORD result);
     const wchar_t* repGetStringConfigValue(const wchar_t* name);
 
-    bool                                              wasEnviromentChanged();
-    static DenseLightWeightMap<Agnostic_Environment>* prevEnviroment;
+    struct Environment
+    {
+        Environment() : getIntConfigValue(nullptr), getStingConfigValue(nullptr)
+        {
+        }
+
+        LightWeightMap<MethodContext::Agnostic_ConfigIntInfo, DWORD>* getIntConfigValue;
+        LightWeightMap<DWORD, DWORD>*                                 getStingConfigValue;
+    };
+
+    Environment cloneEnvironment();
+
+    bool WasEnvironmentChanged(const Environment& prevEnv);
 
     CompileResult* cr;
     CompileResult* originalCR;
     int            index;
 
 private:
+    bool IsEnvironmentHeaderEqual(const Environment& prevEnv);
+    bool IsEnvironmentContentEqual(const Environment& prevEnv);
+
+    template <typename key, typename value>
+    static bool AreLWMHeadersEqual(LightWeightMap<key, value>* prev, LightWeightMap<key, value>* curr);
+    static bool IsIntConfigContentEqual(LightWeightMap<Agnostic_ConfigIntInfo, DWORD>* prev,
+                                        LightWeightMap<Agnostic_ConfigIntInfo, DWORD>* curr);
+    static bool IsStringContentEqual(LightWeightMap<DWORD, DWORD>* prev, LightWeightMap<DWORD, DWORD>* curr);
+
 #define LWM(map, key, value) LightWeightMap<key, value>* map;
 #define DENSELWM(map, value) DenseLightWeightMap<value>* map;
 #include "lwmlist.h"
 };
 
 // ********************* Please keep this up-to-date to ease adding more ***************
-// Highest packet number: 168
+// Highest packet number: 172
 // *************************************************************************************
 enum mcPackets
 {
@@ -1322,7 +1359,7 @@ enum mcPackets
     Packet_EmbedMethodHandle                             = 19,
     Packet_EmbedModuleHandle                             = 20,
     Packet_EmptyStringLiteral                            = 21,
-    Packet_Environment                                   = 136, // Deprecated 7/29/2017
+    Retired9                                             = 136,
     Packet_ErrorList                                     = 22,
     Packet_FilterException                               = 134,
     Packet_FindCallSiteSig                               = 23,
@@ -1358,6 +1395,8 @@ enum mcPackets
     Packet_GetTypeInstantiationArgument                  = 167, // Added 12/4/17
     Packet_GetClassNumInstanceFields                     = 46,
     Packet_GetClassSize                                  = 47,
+    Packet_GetHeapClassSize                              = 170, // Added 10/5/2018
+    Packet_CanAllocateOnStack                            = 171, // Added 10/5/2018
     Packet_GetIntConfigValue                             = 151, // Added 2/12/2015
     Packet_GetStringConfigValue                          = 152, // Added 2/12/2015
     Packet_GetCookieForPInvokeCalliSig                   = 48,
@@ -1366,6 +1405,7 @@ enum mcPackets
     Packet_GetEEInfo                                     = 50,
     Packet_GetEHinfo                                     = 51,
     Packet_GetFieldAddress                               = 52,
+    Packet_GetStaticFieldCurrentClass                    = 172, // Added 11/7/2018
     Packet_GetFieldClass                                 = 53,
     Packet_GetFieldInClass                               = 54,
     Packet_GetFieldInfo                                  = 55,

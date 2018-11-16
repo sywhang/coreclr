@@ -354,7 +354,8 @@ int LinearScan::BuildNode(GenTree* tree)
 #endif // FEATURE_HW_INTRINSICS
 
         case GT_CAST:
-            srcCount = BuildCast(tree);
+            assert(dstCount == 1);
+            srcCount = BuildCast(tree->AsCast());
             break;
 
         case GT_BITCAST:
@@ -533,6 +534,7 @@ int LinearScan::BuildNode(GenTree* tree)
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HW_INTRINSIC_CHK:
 #endif // FEATURE_HW_INTRINSICS
+
             // Consumes arrLen & index - has no result
             srcCount = 2;
             assert(dstCount == 0);
@@ -1795,9 +1797,6 @@ int LinearScan::BuildIntrinsic(GenTree* tree)
 
     switch (tree->gtIntrinsic.gtIntrinsicId)
     {
-        case CORINFO_INTRINSIC_Sqrt:
-            break;
-
         case CORINFO_INTRINSIC_Abs:
             // Abs(float x) = x & 0x7fffffff
             // Abs(double x) = x & 0x7ffffff ffffffff
@@ -1824,6 +1823,7 @@ int LinearScan::BuildIntrinsic(GenTree* tree)
             break;
 #endif // _TARGET_X86_
 
+        case CORINFO_INTRINSIC_Sqrt:
         case CORINFO_INTRINSIC_Round:
         case CORINFO_INTRINSIC_Ceiling:
         case CORINFO_INTRINSIC_Floor:
@@ -2311,7 +2311,7 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
         if (op1->OperIsList())
         {
             assert(op2 == nullptr);
-            assert(numArgs == 3);
+            assert(numArgs >= 3);
 
             GenTreeArgList* argList = op1->AsArgList();
 
@@ -2321,10 +2321,16 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
             op2     = argList->Current();
             argList = argList->Rest();
 
-            op3     = argList->Current();
+            op3 = argList->Current();
+
+            while (argList->Rest() != nullptr)
+            {
+                argList = argList->Rest();
+            }
+
+            lastOp  = argList->Current();
             argList = argList->Rest();
 
-            lastOp = op3;
             assert(argList == nullptr);
         }
         else if (op2 != nullptr)
@@ -2584,12 +2590,40 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
                 break;
             }
 
-            case NI_BMI1_TrailingZeroCount:
-            case NI_LZCNT_LeadingZeroCount:
-            case NI_POPCNT_PopCount:
+            case NI_AVX2_GatherVector128:
+            case NI_AVX2_GatherVector256:
             {
-                assert(numArgs == 1);
-                srcCount += BuildDelayFreeUses(op1);
+                assert(numArgs == 3);
+                // Any pair of the index, mask, or destination registers should be different
+                srcCount += BuildOperandUses(op1);
+                srcCount += BuildDelayFreeUses(op2);
+
+                // get a tmp register for mask that will be cleared by gather instructions
+                buildInternalFloatRegisterDefForNode(intrinsicTree, allSIMDRegs());
+                setInternalRegsDelayFree = true;
+
+                buildUses = false;
+                break;
+            }
+
+            case NI_AVX2_GatherMaskVector128:
+            case NI_AVX2_GatherMaskVector256:
+            {
+                assert(numArgs == 5);
+                // Any pair of the index, mask, or destination registers should be different
+                srcCount += BuildOperandUses(op1);
+                srcCount += BuildOperandUses(op2);
+                srcCount += BuildDelayFreeUses(op3);
+
+                assert(intrinsicTree->gtGetOp1()->OperIsList());
+                GenTreeArgList* argList = intrinsicTree->gtGetOp1()->AsArgList();
+                GenTree*        op4     = argList->Rest()->Rest()->Rest()->Current();
+                srcCount += BuildDelayFreeUses(op4);
+
+                // get a tmp register for mask that will be cleared by gather instructions
+                buildInternalFloatRegisterDefForNode(intrinsicTree, allSIMDRegs());
+                setInternalRegsDelayFree = true;
+
                 buildUses = false;
                 break;
             }
@@ -2638,52 +2672,40 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
 // BuildCast: Set the NodeInfo for a GT_CAST.
 //
 // Arguments:
-//    tree      - The node of interest
+//    cast - The GT_CAST node
 //
 // Return Value:
 //    The number of sources consumed by this node.
 //
-int LinearScan::BuildCast(GenTree* tree)
+int LinearScan::BuildCast(GenTreeCast* cast)
 {
-    // TODO-XArch-CQ: Int-To-Int conversions - castOp cannot be a memory op and must have an assigned register.
-    //         see CodeGen::genIntToIntCast()
+    GenTree* src = cast->gtGetOp1();
 
-    // Non-overflow casts to/from float/double are done using SSE2 instructions
-    // and that allow the source operand to be either a reg or memop. Given the
-    // fact that casts from small int to float/double are done as two-level casts,
-    // the source operand is always guaranteed to be of size 4 or 8 bytes.
-    var_types castToType = tree->CastToType();
-    GenTree*  castOp     = tree->gtCast.CastOp();
-    var_types castOpType = castOp->TypeGet();
+    const var_types srcType  = genActualType(src->TypeGet());
+    const var_types castType = cast->gtCastType;
+
     regMaskTP candidates = RBM_NONE;
-
-    if (tree->gtFlags & GTF_UNSIGNED)
-    {
-        castOpType = genUnsignedType(castOpType);
-    }
-
 #ifdef _TARGET_X86_
-    if (varTypeIsByte(castToType))
+    if (varTypeIsByte(castType))
     {
         candidates = allByteRegs();
     }
-#endif // _TARGET_X86_
 
-    // some overflow checks need a temp reg:
-    //  - GT_CAST from INT64/UINT64 to UINT32
-    RefPosition* internalDef = nullptr;
-    if (tree->gtOverflow() && (castToType == TYP_UINT))
+    assert(!varTypeIsLong(srcType) || (src->OperIs(GT_LONG) && src->isContained()));
+#else
+    // Overflow checking cast from TYP_(U)LONG to TYP_UINT requires a temporary
+    // register to extract the upper 32 bits of the 64 bit source register.
+    if (cast->gtOverflow() && varTypeIsLong(srcType) && (castType == TYP_UINT))
     {
-        if (genTypeSize(castOpType) == 8)
-        {
-            // Here we don't need internal register to be different from targetReg,
-            // rather require it to be different from operand's reg.
-            buildInternalIntRegisterDefForNode(tree);
-        }
+        // Here we don't need internal register to be different from targetReg,
+        // rather require it to be different from operand's reg.
+        buildInternalIntRegisterDefForNode(cast);
     }
-    int srcCount = BuildOperandUses(castOp, candidates);
+#endif
+
+    int srcCount = BuildOperandUses(src, candidates);
     buildInternalRegisterUses();
-    BuildDef(tree, candidates);
+    BuildDef(cast, candidates);
     return srcCount;
 }
 

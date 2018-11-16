@@ -180,15 +180,14 @@ struct MSLAYOUT DebuggerIPCRuntimeOffsets
 
 #if defined(DBG_TARGET_X86) || defined(DBG_TARGET_ARM)
 #ifdef _WIN64
-#define CorDBIPC_BUFFER_SIZE (2096)
+#define CorDBIPC_BUFFER_SIZE 2104
 #else
-#define CorDBIPC_BUFFER_SIZE (2088) // hand tuned to ensure that ipc block in IPCHeader.h fits in 1 page.
+#define CorDBIPC_BUFFER_SIZE 2092
 #endif
 #else  // !_TARGET_X86_ && !_TARGET_ARM_
-// This is the size of a DebuggerIPCEvent.  You will hit an assert in Cordb::Initialize() (DI\process.cpp)
+// This is the size of a DebuggerIPCEvent.  You will hit an assert in Cordb::Initialize() (di\rsmain.cpp)
 // if this is not defined correctly.  AMD64 actually has a page size of 0x1000, not 0x2000.
-#define CorDBIPC_BUFFER_SIZE 4016 // (4016 + 6) * 2 + 148 = 8192 (two (DebuggerIPCEvent + alignment padding) +
-                                  //                              other fields = page size)
+#define CorDBIPC_BUFFER_SIZE 4016 // (4016 + 6) * 2 + 148 = 8192 (two (DebuggerIPCEvent + alignment padding) + other fields = page size)
 #endif // DBG_TARGET_X86 || DBG_TARGET_ARM
 
 //
@@ -640,6 +639,7 @@ DEFINE_LSPTR_TYPE(class DebuggerJitInfo, LSPTR_DJI);
 DEFINE_LSPTR_TYPE(class DebuggerMethodInfo, LSPTR_DMI);
 DEFINE_LSPTR_TYPE(class MethodDesc,         LSPTR_METHODDESC);
 DEFINE_LSPTR_TYPE(class DebuggerBreakpoint, LSPTR_BREAKPOINT);
+DEFINE_LSPTR_TYPE(class DebuggerDataBreakpoint, LSPTR_DATA_BREAKPOINT);
 DEFINE_LSPTR_TYPE(class DebuggerEval,       LSPTR_DEBUGGEREVAL);
 DEFINE_LSPTR_TYPE(class DebuggerStepper,    LSPTR_STEPPER);
 
@@ -1003,7 +1003,7 @@ const size_t nameCount = sizeof(DbgIPCEventTypeNames) / sizeof(DbgIPCEventTypeNa
 
 struct MSLAYOUT IPCENames // We use a class/struct so that the function can remain in a shared header file
 {
-    static const DebuggerIPCEventType GetEventType(__in_z char * strEventType)
+    static DebuggerIPCEventType GetEventType(__in_z char * strEventType)
     {
         // pass in the string of event name and find the matching enum value
         // This is a linear search which is pretty slow. However, this is only used
@@ -1911,6 +1911,7 @@ struct MSLAYOUT DebuggerIPCEvent
     DebuggerIPCEvent*       next;
     DebuggerIPCEventType    type;
     DWORD             processId;
+    DWORD             threadId;
     VMPTR_AppDomain   vmAppDomain;
     VMPTR_Thread      vmThread;
 
@@ -2008,6 +2009,15 @@ struct MSLAYOUT DebuggerIPCEvent
         {
             LSPTR_BREAKPOINT breakpointToken;
         } BreakpointSetErrorData;
+
+        struct MSLAYOUT
+        {
+#ifdef FEATURE_DATABREAKPOINT
+            CONTEXT context;
+#else
+            int dummy;
+#endif
+        } DataBreakpointData;
 
         struct MSLAYOUT
         {
@@ -2343,7 +2353,6 @@ struct MSLAYOUT DebuggerIPCEvent
             void * pMetadataStart;
             ULONG nMetadataSize;
         } MetadataUpdateRequest;
-
     };
 };
 

@@ -63,6 +63,10 @@ INST5(inc_l,            "inc",              IUM_RW, 0x0000FE,     BAD_CODE,     
 INST5(dec,              "dec",              IUM_RW, 0x0008FE,     BAD_CODE,     BAD_CODE,     BAD_CODE,     0x000048,    INS_FLAGS_WritesFlags)
 INST5(dec_l,            "dec",              IUM_RW, 0x0008FE,     BAD_CODE,     BAD_CODE,     BAD_CODE,     0x00C8FE,    INS_FLAGS_WritesFlags)
 
+// Multi-byte opcodes without modrm are represented in mixed endian fashion.
+// See comment around quarter way through this file for more information.
+INST5(bswap,            "bswap",            IUM_RW, 0x0F00C8,     BAD_CODE,     BAD_CODE,     BAD_CODE,     0x00C80F,    INS_FLAGS_None)
+
 //    id                nm                  um      mr            mi            rm            a4                         flags
 INST4(add,              "add",              IUM_RW, 0x000000,     0x000080,     0x000002,     0x000004,                  INS_FLAGS_WritesFlags)
 INST4(or,               "or",               IUM_RW, 0x000008,     0x000880,     0x00000A,     0x00000C,                  INS_FLAGS_WritesFlags)
@@ -456,6 +460,9 @@ INST3(pextrq,           "pextrq",           IUM_WR, SSE3A(0x16),  BAD_CODE,     
 INST3(pextrw_sse41,     "pextrw",           IUM_WR, SSE3A(0x15),  BAD_CODE,     BAD_CODE,                                INS_FLAGS_None)    // Extract Word
 INST3(extractps,        "extractps",        IUM_WR, SSE3A(0x17),  BAD_CODE,     BAD_CODE,                                INS_FLAGS_None)    // Extract Packed Floating-Point Values
 
+//PCLMULQDQ instructions
+INST3(pclmulqdq,        "pclmulqdq" ,       IUM_WR, BAD_CODE,     BAD_CODE,     SSE3A(0x44),                             INS_Flags_IsDstDstSrcAVXInstruction)   // Perform a carry-less multiplication of two quadwords
+
 //AES instructions
 INST3(aesdec,           "aesdec",           IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0xDE),                             INS_Flags_IsDstDstSrcAVXInstruction)   // Perform one round of an AES decryption flow
 INST3(aesdeclast,       "aesdeclast",       IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0xDF),                             INS_Flags_IsDstDstSrcAVXInstruction)   // Perform last round of an AES decryption flow
@@ -497,12 +504,22 @@ INST3(vpermilpsvar,     "permilpsvar",      IUM_WR, BAD_CODE,     BAD_CODE,     
 INST3(vpermilpdvar,     "permilpdvar",      IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0x0D),                             INS_Flags_IsDstDstSrcAVXInstruction)    // Permute In-Lane of Quadruples of Double-Precision Floating-Point Values
 INST3(vperm2f128,       "perm2f128",        IUM_WR, BAD_CODE,     BAD_CODE,     SSE3A(0x06),                             INS_Flags_IsDstDstSrcAVXInstruction)    // Permute Floating-Point Values
 INST3(vpermpd,          "permpd",           IUM_WR, BAD_CODE,     BAD_CODE,     SSE3A(0x01),                             INS_FLAGS_None)    // Permute Double-Precision Floating-Point Values
+INST3(vpermd,           "permd",            IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0x36),                             INS_Flags_IsDstDstSrcAVXInstruction)    // Permute Packed Doublewords Elements
+INST3(vpermps,          "permps",           IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0x16),                             INS_Flags_IsDstDstSrcAVXInstruction)    // Permute Single-Precision Floating-Point Elements
 INST3(vbroadcastf128,   "broadcastf128",    IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0x1A),                             INS_FLAGS_None)    // Broadcast packed float values read from memory to entire ymm register
 INST3(vbroadcasti128,   "broadcasti128",    IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0x5A),                             INS_FLAGS_None)    // Broadcast packed integer values read from memory to entire ymm register
 INST3(vmaskmovps,       "maskmovps",        IUM_WR, SSE38(0x2E),  BAD_CODE,     SSE38(0x2C),                             INS_Flags_IsDstDstSrcAVXInstruction)    // Conditional SIMD Packed Single-Precision Floating-Point Loads and Stores
 INST3(vmaskmovpd,       "maskmovpd",        IUM_WR, SSE38(0x2F),  BAD_CODE,     SSE38(0x2D),                             INS_Flags_IsDstDstSrcAVXInstruction)    // Conditional SIMD Packed Double-Precision Floating-Point Loads and Stores
 INST3(vpmaskmovd,       "pmaskmovd",        IUM_WR, SSE38(0x8E),  BAD_CODE,     SSE38(0x8C),                             INS_Flags_IsDstDstSrcAVXInstruction)    // Conditional SIMD Integer Packed Dword Loads and Stores
 INST3(vpmaskmovq,       "pmaskmovq",        IUM_WR, SSE38(0x8E),  BAD_CODE,     SSE38(0x8C),                             INS_Flags_IsDstDstSrcAVXInstruction)    // Conditional SIMD Integer Packed Qword Loads and Stores
+INST3(vpgatherdd,       "pgatherdd",        IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0x90),                             INS_Flags_IsDstDstSrcAVXInstruction)    // Gather Packed Dword Values Using Signed Dword
+INST3(vpgatherqd,       "pgatherqd",        IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0x91),                             INS_Flags_IsDstDstSrcAVXInstruction)    // Gather Packed Dword Values Using Signed Qword
+INST3(vpgatherdq,       "pgatherdq",        IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0x90),                             INS_Flags_IsDstDstSrcAVXInstruction)    // Gather Packed Dword with Signed Dword Indices
+INST3(vpgatherqq,       "pgatherqq",        IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0x91),                             INS_Flags_IsDstDstSrcAVXInstruction)    // Gather Packed Qword with Signed Dword Indices
+INST3(vgatherdps,       "gatherdps",        IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0x92),                             INS_Flags_IsDstDstSrcAVXInstruction)    // Gather Packed SP FP values Using Signed Dword Indices
+INST3(vgatherqps,       "gatherqps",        IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0x93),                             INS_Flags_IsDstDstSrcAVXInstruction)    // Gather Packed SP FP values Using Signed Qword Indices
+INST3(vgatherdpd,       "gatherdpd",        IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0x92),                             INS_Flags_IsDstDstSrcAVXInstruction)    // Gather Packed DP FP Values Using Signed Dword Indices
+INST3(vgatherqpd,       "gatherqpd",        IUM_WR, BAD_CODE,     BAD_CODE,     SSE38(0x93),                             INS_Flags_IsDstDstSrcAVXInstruction)    // Gather Packed DP FP Values Using Signed Qword Indices
 
 INST3(FIRST_FMA_INSTRUCTION, "FIRST_FMA_INSTRUCTION", IUM_WR, BAD_CODE, BAD_CODE, BAD_CODE, INS_FLAGS_None)
 //    id                nm                  um      mr            mi            rm                                       flags

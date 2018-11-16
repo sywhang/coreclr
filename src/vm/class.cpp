@@ -174,11 +174,6 @@ void EEClass::Destruct(MethodTable * pOwningMT)
         delete pDelegateEEClass->m_pUMThunkMarshInfo;
     }
 
-    // We should never get here for thunking proxy because we do not destroy
-    // default appdomain and mscorlib.dll module during shutdown
-    _ASSERTE(!pOwningMT->IsTransparentProxy());
-
-  
 #ifdef FEATURE_COMINTEROP 
     if (GetSparseCOMInteropVTableMap() != NULL && !pOwningMT->IsZapped())
         delete GetSparseCOMInteropVTableMap();
@@ -384,8 +379,7 @@ VOID EEClass::FixupFieldDescForEnC(MethodTable * pMT, EnCFieldDesc *pFD, mdField
                        NULL,
                        NULL,
                        &genericsInfo,
-                       &bmtEnumFields,
-                       NULL);
+                       &bmtEnumFields);
 
     EX_TRY
     {
@@ -400,7 +394,6 @@ VOID EEClass::FixupFieldDescForEnC(MethodTable * pMT, EnCFieldDesc *pFD, mdField
                                  &pByValueClassCache,
                                  &bmtMFDescs,
                                  &bmtFP,
-                                 NULL, // not needed as thread or context static are not allowed in EnC
                                  &totalDeclaredFieldSize);
     }
     EX_CATCH_THROWABLE(&pThrowable);

@@ -4145,26 +4145,6 @@ BasicBlock* Compiler::fgLookupBB(unsigned addr)
     NO_WAY("fgLookupBB failed.");
 }
 
-/*****************************************************************************
- *
- *  The 'jump target' array uses the following flags to indicate what kind
- *  of label is present.
- */
-
-#define JT_NONE 0x00  // This IL offset is never used
-#define JT_ADDR 0x01  // merely make sure this is an OK address
-#define JT_JUMP 0x02  // 'normal' jump target
-#define JT_MULTI 0x04 // target of multiple jumps
-
-inline void Compiler::fgMarkJumpTarget(BYTE* jumpTarget, unsigned offs)
-{
-    /* Make sure we set JT_MULTI if target of multiple jumps */
-
-    noway_assert(JT_MULTI == JT_JUMP << 1);
-
-    jumpTarget[offs] |= (jumpTarget[offs] & JT_JUMP) << 1 | JT_JUMP;
-}
-
 //------------------------------------------------------------------------
 // FgStack: simple stack model for the inlinee's evaluation stack.
 //
@@ -4277,7 +4257,7 @@ private:
 // Arguments:
 //    codeAddr   - base address of the IL code buffer
 //    codeSize   - number of bytes in the IL code buffer
-//    jumpTarget - [OUT] byte array for flagging jump targets
+//    jumpTarget - [OUT] bit vector for flagging jump targets
 //
 // Notes:
 //    If inlining or prejitting the root, this method also makes
@@ -4286,8 +4266,7 @@ private:
 //
 //    May throw an exception if the IL is malformed.
 //
-//    jumpTarget[N] is set to a JT_* value if IL offset N is a
-//    jump target in the method.
+//    jumpTarget[N] is set to 1 if IL offset N is a jump target in the method.
 //
 //    Also sets lvAddrExposed and lvHasILStoreOp, ilHasMultipleILStoreOp in lvaTable[].
 
@@ -4296,7 +4275,7 @@ private:
 #pragma warning(disable : 21000) // Suppress PREFast warning about overly large function
 #endif
 
-void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, BYTE* jumpTarget)
+void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, FixedBitVect* jumpTarget)
 {
     const BYTE* codeBegp = codeAddr;
     const BYTE* codeEndp = codeAddr + codeSize;
@@ -4469,7 +4448,7 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, BYTE*
                 }
 
                 // Mark the jump target
-                fgMarkJumpTarget(jumpTarget, jmpAddr);
+                jumpTarget->bitVectSet(jmpAddr);
 
                 // See if jump might be sensitive to inlining
                 if (makeInlineObservations && (opcode != CEE_BR_S) && (opcode != CEE_BR))
@@ -4519,7 +4498,7 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, BYTE*
                 }
 
                 // jmpBase is also the target of the default case, so mark it
-                fgMarkJumpTarget(jumpTarget, jmpBase);
+                jumpTarget->bitVectSet(jmpBase);
 
                 // Process table entries
                 while (jmpCnt > 0)
@@ -4532,7 +4511,7 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, BYTE*
                         BADCODE3("jump target out of range", " at offset %04X", (IL_OFFSET)(codeAddr - codeBegp));
                     }
 
-                    fgMarkJumpTarget(jumpTarget, jmpAddr);
+                    jumpTarget->bitVectSet(jmpAddr);
                     jmpCnt--;
                 }
 
@@ -5219,25 +5198,32 @@ void Compiler::fgLinkBasicBlocks()
     }
 }
 
-/*****************************************************************************
- *
- *  Walk the instrs to create the basic blocks. Returns the number of BBJ_RETURN in method
- */
+//------------------------------------------------------------------------
+// fgMakeBasicBlocks: walk the IL creating basic blocks, and look for
+//   operations that might get optimized if this method were to be inlined.
+//
+// Arguments:
+//   codeAddr -- starting address of the method's IL stream
+//   codeSize -- length of the IL stream
+//   jumpTarget -- [in] bit vector of jump targets found by fgFindJumpTargets
+//
+// Returns:
+//   number of return blocks (BBJ_RETURN) in the method (may be zero)
+//
+// Notes:
+//   Invoked for prejited and jitted methods, and for all inlinees
 
-unsigned Compiler::fgMakeBasicBlocks(const BYTE* codeAddr, IL_OFFSET codeSize, BYTE* jumpTarget)
+unsigned Compiler::fgMakeBasicBlocks(const BYTE* codeAddr, IL_OFFSET codeSize, FixedBitVect* jumpTarget)
 {
-    unsigned    retBlocks;
-    const BYTE* codeBegp = codeAddr;
-    const BYTE* codeEndp = codeAddr + codeSize;
-    bool        tailCall = false;
-    unsigned    curBBoffs;
+    unsigned    retBlocks = 0;
+    const BYTE* codeBegp  = codeAddr;
+    const BYTE* codeEndp  = codeAddr + codeSize;
+    bool        tailCall  = false;
+    unsigned    curBBoffs = 0;
     BasicBlock* curBBdesc;
 
-    retBlocks = 0;
-    /* Clear the beginning offset for the first BB */
-
-    curBBoffs = 0;
-
+    // Keep track of where we are in the scope lists, as we will also
+    // create blocks at scope boundaries.
     if (opts.compDbgCode && (info.compVarScopesCount > 0))
     {
         compResetScopeLists();
@@ -5251,20 +5237,15 @@ unsigned Compiler::fgMakeBasicBlocks(const BYTE* codeAddr, IL_OFFSET codeSize, B
         }
     }
 
-    BBjumpKinds jmpKind;
-
     do
     {
-        OPCODE     opcode;
-        unsigned   sz;
         unsigned   jmpAddr = DUMMY_INIT(BAD_IL_OFFSET);
         unsigned   bbFlags = 0;
         BBswtDesc* swtDsc  = nullptr;
         unsigned   nxtBBoffs;
-
-        opcode = (OPCODE)getU1LittleEndian(codeAddr);
+        OPCODE     opcode = (OPCODE)getU1LittleEndian(codeAddr);
         codeAddr += sizeof(__int8);
-        jmpKind = BBJ_NONE;
+        BBjumpKinds jmpKind = BBJ_NONE;
 
     DECODE_OPCODE:
 
@@ -5272,14 +5253,14 @@ unsigned Compiler::fgMakeBasicBlocks(const BYTE* codeAddr, IL_OFFSET codeSize, B
 
         noway_assert((unsigned)opcode < CEE_COUNT);
 
-        sz = opcodeSizes[opcode];
+        unsigned sz = opcodeSizes[opcode];
 
         switch (opcode)
         {
             signed jmpDist;
 
             case CEE_PREFIX1:
-                if (jumpTarget[codeAddr - codeBegp] != JT_NONE)
+                if (jumpTarget->bitVectTest((UINT)(codeAddr - codeBegp)))
                 {
                     BADCODE3("jump target between prefix 0xFE and opcode", " at offset %04X",
                              (IL_OFFSET)(codeAddr - codeBegp));
@@ -5349,7 +5330,7 @@ unsigned Compiler::fgMakeBasicBlocks(const BYTE* codeAddr, IL_OFFSET codeSize, B
             case CEE_SWITCH:
             {
                 unsigned jmpBase;
-                unsigned jmpCnt; // # of switch cases (excluding defualt)
+                unsigned jmpCnt; // # of switch cases (excluding default)
 
                 BasicBlock** jmpTab;
                 BasicBlock** jmpPtr;
@@ -5451,7 +5432,7 @@ unsigned Compiler::fgMakeBasicBlocks(const BYTE* codeAddr, IL_OFFSET codeSize, B
                 //   (i.e. a prefix opcodes as last intruction in a block)
                 noway_assert(codeAddr < codeEndp);
 
-                if (jumpTarget[codeAddr - codeBegp] != JT_NONE)
+                if (jumpTarget->bitVectTest((UINT)(codeAddr - codeBegp)))
                 {
                     BADCODE3("jump target between prefix and an opcode", " at offset %04X",
                              (IL_OFFSET)(codeAddr - codeBegp));
@@ -5621,7 +5602,7 @@ unsigned Compiler::fgMakeBasicBlocks(const BYTE* codeAddr, IL_OFFSET codeSize, B
 
             for (unsigned i = 0; i < sz; i++, offs++)
             {
-                if (jumpTarget[offs] != JT_NONE)
+                if (jumpTarget->bitVectTest(offs))
                 {
                     BADCODE3("jump into the middle of an opcode", " at offset %04X", (IL_OFFSET)(codeAddr - codeBegp));
                 }
@@ -5659,7 +5640,7 @@ unsigned Compiler::fgMakeBasicBlocks(const BYTE* codeAddr, IL_OFFSET codeSize, B
 
             /* If a label follows this opcode, we'll have to make a new BB */
 
-            bool makeBlock = (jumpTarget[nxtBBoffs] != JT_NONE);
+            bool makeBlock = jumpTarget->bitVectTest(nxtBBoffs);
 
             if (!makeBlock && foundScope)
             {
@@ -5753,19 +5734,10 @@ void Compiler::fgFindBasicBlocks()
     }
 #endif
 
-    /* Allocate the 'jump target' vector
-     *
-     *  We need one extra byte as we mark
-     *  jumpTarget[info.compILCodeSize] with JT_ADDR
-     *  when we need to add a dummy block
-     *  to record the end of a try or handler region.
-     */
-    BYTE* jumpTarget = new (this, CMK_Unknown) BYTE[info.compILCodeSize + 1];
-    memset(jumpTarget, JT_NONE, info.compILCodeSize + 1);
-    noway_assert(JT_NONE == 0);
+    // Allocate the 'jump target' bit vector
+    FixedBitVect* jumpTarget = FixedBitVect::bitVectInit(info.compILCodeSize + 1, this);
 
-    /* Walk the instrs to find all jump targets */
-
+    // Walk the instrs to find all jump targets
     fgFindJumpTargets(info.compCode, info.compILCodeSize, jumpTarget);
     if (compDonotInline())
     {
@@ -5784,7 +5756,6 @@ void Compiler::fgFindBasicBlocks()
 
         for (XTnum = 0; XTnum < info.compXcptnsCount; XTnum++)
         {
-            DWORD             tmpOffset;
             CORINFO_EH_CLAUSE clause;
             info.compCompHnd->getEHinfo(info.compMethodHnd, XTnum, &clause);
             noway_assert(clause.HandlerLength != (unsigned)-1);
@@ -5800,39 +5771,25 @@ void Compiler::fgFindBasicBlocks()
             {
                 BADCODE("try offset is > codesize");
             }
-            if (jumpTarget[clause.TryOffset] == JT_NONE)
-            {
-                jumpTarget[clause.TryOffset] = JT_ADDR;
-            }
+            jumpTarget->bitVectSet(clause.TryOffset);
 
-            tmpOffset = clause.TryOffset + clause.TryLength;
-            if (tmpOffset > info.compILCodeSize)
+            if (clause.TryOffset + clause.TryLength > info.compILCodeSize)
             {
                 BADCODE("try end is > codesize");
             }
-            if (jumpTarget[tmpOffset] == JT_NONE)
-            {
-                jumpTarget[tmpOffset] = JT_ADDR;
-            }
+            jumpTarget->bitVectSet(clause.TryOffset + clause.TryLength);
 
             if (clause.HandlerOffset > info.compILCodeSize)
             {
                 BADCODE("handler offset > codesize");
             }
-            if (jumpTarget[clause.HandlerOffset] == JT_NONE)
-            {
-                jumpTarget[clause.HandlerOffset] = JT_ADDR;
-            }
+            jumpTarget->bitVectSet(clause.HandlerOffset);
 
-            tmpOffset = clause.HandlerOffset + clause.HandlerLength;
-            if (tmpOffset > info.compILCodeSize)
+            if (clause.HandlerOffset + clause.HandlerLength > info.compILCodeSize)
             {
                 BADCODE("handler end > codesize");
             }
-            if (jumpTarget[tmpOffset] == JT_NONE)
-            {
-                jumpTarget[tmpOffset] = JT_ADDR;
-            }
+            jumpTarget->bitVectSet(clause.HandlerOffset + clause.HandlerLength);
 
             if (clause.Flags & CORINFO_EH_CLAUSE_FILTER)
             {
@@ -5840,10 +5797,7 @@ void Compiler::fgFindBasicBlocks()
                 {
                     BADCODE("filter offset > codesize");
                 }
-                if (jumpTarget[clause.FilterOffset] == JT_NONE)
-                {
-                    jumpTarget[clause.FilterOffset] = JT_ADDR;
-                }
+                jumpTarget->bitVectSet(clause.FilterOffset);
             }
         }
     }
@@ -5855,24 +5809,13 @@ void Compiler::fgFindBasicBlocks()
         printf("Jump targets:\n");
         for (unsigned i = 0; i < info.compILCodeSize + 1; i++)
         {
-            if (jumpTarget[i] == JT_NONE)
+            if (jumpTarget->bitVectTest(i))
             {
-                continue;
+                anyJumpTargets = true;
+                printf("  IL_%04x\n", i);
             }
-
-            anyJumpTargets = true;
-            printf("  IL_%04x", i);
-
-            if (jumpTarget[i] & JT_ADDR)
-            {
-                printf(" addr");
-            }
-            if (jumpTarget[i] & JT_MULTI)
-            {
-                printf(" multi");
-            }
-            printf("\n");
         }
+
         if (!anyJumpTargets)
         {
             printf("  none\n");
@@ -5910,19 +5853,34 @@ void Compiler::fgFindBasicBlocks()
         // or if the inlinee has GC ref locals.
         if ((info.compRetNativeType != TYP_VOID) && ((retBlocks > 1) || impInlineInfo->HasGcRefLocals()))
         {
-            // The lifetime of this var might expand multiple BBs. So it is a long lifetime compiler temp.
-            lvaInlineeReturnSpillTemp                  = lvaGrabTemp(false DEBUGARG("Inline return value spill temp"));
-            lvaTable[lvaInlineeReturnSpillTemp].lvType = info.compRetNativeType;
+            // If we've spilled the ret expr to a temp we can reuse the temp
+            // as the inlinee return spill temp.
+            //
+            // Todo: see if it is even better to always use this existing temp
+            // for return values, even if we otherwise wouldn't need a return spill temp...
+            lvaInlineeReturnSpillTemp = impInlineInfo->inlineCandidateInfo->preexistingSpillTemp;
 
-            // If the method returns a ref class, set the class of the spill temp
-            // to the method's return value. We may update this later if it turns
-            // out we can prove the method returns a more specific type.
-            if (info.compRetType == TYP_REF)
+            if (lvaInlineeReturnSpillTemp != BAD_VAR_NUM)
             {
-                CORINFO_CLASS_HANDLE retClassHnd = impInlineInfo->inlineCandidateInfo->methInfo.args.retTypeClass;
-                if (retClassHnd != nullptr)
+                // This temp should already have the type of the return value.
+                JITDUMP("\nInliner: re-using pre-existing spill temp V%02u\n", lvaInlineeReturnSpillTemp);
+            }
+            else
+            {
+                // The lifetime of this var might expand multiple BBs. So it is a long lifetime compiler temp.
+                lvaInlineeReturnSpillTemp = lvaGrabTemp(false DEBUGARG("Inline return value spill temp"));
+                lvaTable[lvaInlineeReturnSpillTemp].lvType = info.compRetNativeType;
+
+                // If the method returns a ref class, set the class of the spill temp
+                // to the method's return value. We may update this later if it turns
+                // out we can prove the method returns a more specific type.
+                if (info.compRetType == TYP_REF)
                 {
-                    lvaSetClass(lvaInlineeReturnSpillTemp, retClassHnd);
+                    CORINFO_CLASS_HANDLE retClassHnd = impInlineInfo->inlineCandidateInfo->methInfo.args.retTypeClass;
+                    if (retClassHnd != nullptr)
+                    {
+                        lvaSetClass(lvaInlineeReturnSpillTemp, retClassHnd);
+                    }
                 }
             }
         }
@@ -9553,11 +9511,8 @@ void Compiler::fgSimpleLowering()
                     }
                     else
                     {
-                        con             = gtNewIconNode(arrLen->ArrLenOffset(), TYP_I_IMPL);
-                        con->gtRsvdRegs = RBM_NONE;
-
-                        add             = gtNewOperNode(GT_ADD, TYP_REF, arr, con);
-                        add->gtRsvdRegs = arr->gtRsvdRegs;
+                        con = gtNewIconNode(arrLen->ArrLenOffset(), TYP_I_IMPL);
+                        add = gtNewOperNode(GT_ADD, TYP_REF, arr, con);
 
                         range.InsertAfter(arr, con, add);
                     }
@@ -11036,6 +10991,14 @@ void Compiler::fgRemoveBlock(BasicBlock* block, bool unreachable)
 
         /* First update the loop table and bbWeights */
         optUpdateLoopsBeforeRemoveBlock(block, skipUnmarkLoop);
+
+        // Update successor block start IL offset, if empty predecessor
+        // covers the immediately preceding range.
+        if ((block->bbCodeOffsEnd == succBlock->bbCodeOffs) && (block->bbCodeOffs != BAD_IL_OFFSET))
+        {
+            assert(block->bbCodeOffs <= succBlock->bbCodeOffs);
+            succBlock->bbCodeOffs = block->bbCodeOffs;
+        }
 
         /* Remove the block */
 
@@ -18742,10 +18705,10 @@ void Compiler::fgSetTreeSeqHelper(GenTree* tree, bool isLIR)
             break;
 
         case GT_INDEX_ADDR:
-            // Evaluate the index first, then the array address
-            assert((tree->gtFlags & GTF_REVERSE_OPS) != 0);
-            fgSetTreeSeqHelper(tree->AsIndexAddr()->Index(), isLIR);
+            // Evaluate the array first, then the index....
+            assert((tree->gtFlags & GTF_REVERSE_OPS) == 0);
             fgSetTreeSeqHelper(tree->AsIndexAddr()->Arr(), isLIR);
+            fgSetTreeSeqHelper(tree->AsIndexAddr()->Index(), isLIR);
             break;
 
         default:
@@ -21891,7 +21854,20 @@ void Compiler::fgInline()
 
             // See if we need to replace the return value place holder.
             // Also, see if this update enables further devirtualization.
-            fgWalkTreePre(&stmt->gtStmtExpr, fgUpdateInlineReturnExpressionPlaceHolder, (void*)this);
+            //
+            // Note we have both preorder and postorder callbacks here.
+            //
+            // The preorder callback is responsible for replacing GT_RET_EXPRs
+            // with the appropriate expansion (call or inline result).
+            // Replacement may introduce subtrees with GT_RET_EXPR and so
+            // we rely on the preorder to recursively process those as well.
+            //
+            // On the way back up, the postorder callback then re-examines nodes for
+            // possible further optimization, as the (now complete) GT_RET_EXPR
+            // replacement may have enabled optimizations by providing more
+            // specific types for trees or variables.
+            fgWalkTree(&stmt->gtStmtExpr, fgUpdateInlineReturnExpressionPlaceHolder, fgLateDevirtualization,
+                       (void*)this);
 
             // See if stmt is of the form GT_COMMA(call, nop)
             // If yes, we can get rid of GT_COMMA.
@@ -21938,8 +21914,9 @@ void Compiler::fgInline()
 
     if (verbose || fgPrintInlinedMethods)
     {
-        printf("**************** Inline Tree\n");
-        m_inlineStrategy->Dump();
+        JITDUMP("**************** Inline Tree");
+        printf("\n");
+        m_inlineStrategy->Dump(verbose);
     }
 
 #endif // DEBUG
@@ -22181,25 +22158,29 @@ void Compiler::fgAttachStructInlineeToAsg(GenTree* tree, GenTree* child, CORINFO
 //    the inlinee return expression if the inline is successful (see
 //    tail end of fgInsertInlineeBlocks for the update of iciCall).
 //
-//    If the parent of the GT_RET_EXPR is a virtual call,
-//    devirtualization is attempted. This should only succeed in the
-//    successful inline case, when the inlinee's return value
-//    expression provides a better type than the return type of the
-//    method. Note for failed inlines, the devirtualizer can only go
-//    by the return type, and any devirtualization that type enabled
-//    would have already happened during importation.
-//
 //    If the return type is a struct type and we're on a platform
 //    where structs can be returned in multiple registers, ensure the
 //    call has a suitable parent.
 
 Compiler::fgWalkResult Compiler::fgUpdateInlineReturnExpressionPlaceHolder(GenTree** pTree, fgWalkData* data)
 {
-    GenTree*             tree      = *pTree;
+    // All the operations here and in the corresponding postorder
+    // callback (fgLateDevirtualization) are triggered by GT_CALL or
+    // GT_RET_EXPR trees, and these (should) have the call side
+    // effect flag.
+    //
+    // So bail out for any trees that don't have this flag.
+    GenTree* tree = *pTree;
+
+    if ((tree->gtFlags & GTF_CALL) == 0)
+    {
+        return WALK_SKIP_SUBTREES;
+    }
+
     Compiler*            comp      = data->compiler;
     CORINFO_CLASS_HANDLE retClsHnd = NO_CLASS_HANDLE;
 
-    if (tree->gtOper == GT_RET_EXPR)
+    if (tree->OperGet() == GT_RET_EXPR)
     {
         // We are going to copy the tree from the inlinee,
         // so record the handle now.
@@ -22209,71 +22190,33 @@ Compiler::fgWalkResult Compiler::fgUpdateInlineReturnExpressionPlaceHolder(GenTr
             retClsHnd = tree->gtRetExpr.gtRetClsHnd;
         }
 
-        do
+        // Skip through chains of GT_RET_EXPRs (say from nested inlines)
+        // to the actual tree to use.
+        GenTree* inlineCandidate = tree->gtRetExprVal();
+
+#ifdef DEBUG
+        if (comp->verbose)
         {
-            // Obtained the expanded inline candidate
-            GenTree* inlineCandidate = tree->gtRetExpr.gtInlineCandidate;
-
-#ifdef DEBUG
-            if (comp->verbose)
-            {
-                printf("\nReplacing the return expression placeholder ");
-                printTreeID(tree);
-                printf(" with ");
-                printTreeID(inlineCandidate);
-                printf("\n");
-                // Dump out the old return expression placeholder it will be overwritten by the ReplaceWith below
-                comp->gtDispTree(tree);
-            }
-#endif // DEBUG
-
-            tree->ReplaceWith(inlineCandidate, comp);
-
-#ifdef DEBUG
-            if (comp->verbose)
-            {
-                printf("\nInserting the inline return expression\n");
-                comp->gtDispTree(tree);
-                printf("\n");
-            }
-#endif // DEBUG
-        } while (tree->gtOper == GT_RET_EXPR);
-
-        // Now see if this return value expression feeds the 'this'
-        // object at a virtual call site.
-        //
-        // Note for void returns where the inline failed, the
-        // GT_RET_EXPR may be top-level.
-        //
-        // May miss cases where there are intermediaries between call
-        // and this, eg commas.
-        GenTree* parentTree = data->parent;
-
-        if ((parentTree != nullptr) && (parentTree->gtOper == GT_CALL))
-        {
-            GenTreeCall* call  = parentTree->AsCall();
-            bool tryLateDevirt = call->IsVirtual() && (call->gtCallObjp == tree) && (call->gtCallType == CT_USER_FUNC);
-
-#ifdef DEBUG
-            tryLateDevirt = tryLateDevirt && (JitConfig.JitEnableLateDevirtualization() == 1);
-#endif // DEBUG
-
-            if (tryLateDevirt)
-            {
-#ifdef DEBUG
-                if (comp->verbose)
-                {
-                    printf("**** Late devirt opportunity\n");
-                    comp->gtDispTree(call);
-                }
-#endif // DEBUG
-
-                CORINFO_METHOD_HANDLE  method      = call->gtCallMethHnd;
-                unsigned               methodFlags = 0;
-                CORINFO_CONTEXT_HANDLE context     = nullptr;
-                comp->impDevirtualizeCall(call, &method, &methodFlags, &context, nullptr);
-            }
+            printf("\nReplacing the return expression placeholder ");
+            printTreeID(tree);
+            printf(" with ");
+            printTreeID(inlineCandidate);
+            printf("\n");
+            // Dump out the old return expression placeholder it will be overwritten by the ReplaceWith below
+            comp->gtDispTree(tree);
         }
+#endif // DEBUG
+
+        tree->ReplaceWith(inlineCandidate, comp);
+
+#ifdef DEBUG
+        if (comp->verbose)
+        {
+            printf("\nInserting the inline return expression\n");
+            comp->gtDispTree(tree);
+            printf("\n");
+        }
+#endif // DEBUG
     }
 
     // If an inline was rejected and the call returns a struct, we may
@@ -22392,20 +22335,94 @@ Compiler::fgWalkResult Compiler::fgUpdateInlineReturnExpressionPlaceHolder(GenTr
     // leaving an assert in here. This can be fixed by looking ahead
     // when we visit GT_ASG similar to fgAttachStructInlineeToAsg.
     //
-    if ((tree->gtOper == GT_ASG) && (tree->gtOp.gtOp2->gtOper == GT_COMMA))
+    if (tree->OperGet() == GT_ASG)
     {
-        GenTree* comma;
-        for (comma = tree->gtOp.gtOp2; comma->gtOper == GT_COMMA; comma = comma->gtOp.gtOp2)
-        {
-            // empty
-        }
+        GenTree* value = tree->gtOp.gtOp2;
 
-        noway_assert(!varTypeIsStruct(comma) || comma->gtOper != GT_RET_EXPR ||
-                     !comp->IsMultiRegReturnedType(comma->gtRetExpr.gtRetClsHnd));
+        if (value->OperGet() == GT_COMMA)
+        {
+            GenTree* effectiveValue = value->gtEffectiveVal(/*commaOnly*/ true);
+
+            noway_assert(!varTypeIsStruct(effectiveValue) || (effectiveValue->OperGet() != GT_RET_EXPR) ||
+                         !comp->IsMultiRegReturnedType(effectiveValue->gtRetExpr.gtRetClsHnd));
+        }
     }
 
 #endif // defined(DEBUG)
 #endif // FEATURE_MULTIREG_RET
+
+    return WALK_CONTINUE;
+}
+
+//------------------------------------------------------------------------
+// fgLateDevirtualization: re-examine calls after inlining to see if we
+//   can do more devirtualization
+//
+// Arguments:
+//    pTree -- pointer to tree to examine for updates
+//    data  -- context data for the tree walk
+//
+// Returns:
+//    fgWalkResult indicating the walk should continue; that
+//    is we wish to fully explore the tree.
+//
+// Notes:
+//    We used to check this opportunistically in the preorder callback for
+//    calls where the `obj` was fed by a return, but we now re-examine
+//    all calls.
+//
+//    Late devirtualization (and eventually, perhaps, other type-driven
+//    opts like cast optimization) can happen now because inlining or other
+//    optimizations may have provided more accurate types than we saw when
+//    first importing the trees.
+//
+//    It would be nice to screen candidate sites based on the likelihood
+//    that something has changed. Otherwise we'll waste some time retrying
+//    an optimization that will just fail again.
+
+Compiler::fgWalkResult Compiler::fgLateDevirtualization(GenTree** pTree, fgWalkData* data)
+{
+    GenTree*  tree   = *pTree;
+    GenTree*  parent = data->parent;
+    Compiler* comp   = data->compiler;
+
+    // In some (rare) cases the parent node of tree will be smashed to a NOP during
+    // the preorder by fgAttachStructToInlineeArg.
+    //
+    // jit\Methodical\VT\callconv\_il_reljumper3 for x64 linux
+    //
+    // If so, just bail out here.
+    if ((parent != nullptr) && parent->OperGet() == GT_NOP)
+    {
+        assert(tree == nullptr);
+        return WALK_CONTINUE;
+    }
+
+    if (tree->OperGet() == GT_CALL)
+    {
+        GenTreeCall* call          = tree->AsCall();
+        bool         tryLateDevirt = call->IsVirtual() && (call->gtCallType == CT_USER_FUNC);
+
+#ifdef DEBUG
+        tryLateDevirt = tryLateDevirt && (JitConfig.JitEnableLateDevirtualization() == 1);
+#endif // DEBUG
+
+        if (tryLateDevirt)
+        {
+#ifdef DEBUG
+            if (comp->verbose)
+            {
+                printf("**** Late devirt opportunity\n");
+                comp->gtDispTree(call);
+            }
+#endif // DEBUG
+
+            CORINFO_METHOD_HANDLE  method      = call->gtCallMethHnd;
+            unsigned               methodFlags = 0;
+            CORINFO_CONTEXT_HANDLE context     = nullptr;
+            comp->impDevirtualizeCall(call, &method, &methodFlags, &context, nullptr);
+        }
+    }
 
     return WALK_CONTINUE;
 }
@@ -22633,7 +22650,7 @@ void Compiler::fgInvokeInlineeCompiler(GenTreeCall* call, InlineResult* inlineRe
 
 #ifdef DEBUG
 
-    if (verbose || fgPrintInlinedMethods)
+    if (verbose)
     {
         printf("Successfully inlined %s (%d IL bytes) (depth %d) [%s]\n", eeGetMethodFullName(fncHandle),
                inlineCandidateInfo->methInfo.ILCodeSize, inlineDepth, inlineResult->ReasonString());
@@ -23114,7 +23131,7 @@ GenTree* Compiler::fgInlinePrependStatements(InlineInfo* inlineInfo)
 
                 /* argBashTmpNode is non-NULL iff the argument's value was
                    referenced exactly once by the original IL. This offers an
-                   oppportunity to avoid an intermediate temp and just insert
+                   opportunity to avoid an intermediate temp and just insert
                    the original argument tree.
 
                    However, if the temp node has been cloned somewhere while

@@ -418,13 +418,11 @@ def main(args):
     coreclrPerf, assemblyName, arch, operatingSystem, configuration, jitName, optLevel, runType, outputDir, stabilityPrefix, isScenarioTest, benchviewPath, isPgoOptimized, benchviewGroup, hasWarmupRun, collectionFlags, isLibrary, uploadToBenchview, better, sliceNumber, sliceConfigFile = validate_args(args)
 
     platform = sys.platform
-    python = 'py'
+    python = sys.executable
     if platform == 'linux' or platform == 'linux2':
         platform = 'Linux'
-        python = 'python3'
     elif platform == 'darwin':
         platform = 'OSX'
-        python = 'python3'
     elif platform == 'win32':
         platform = "Windows_NT"
     else:
@@ -455,7 +453,7 @@ def main(args):
     build_perfharness(coreclrRepo, sandboxDir, extension, myEnv)
 
     # Set up environment for running tests
-    if optLevel == 'min_opts':
+    if optLevel == 'min_opt':
         myEnv['COMPlus_JITMinOpts'] = '1'
         myEnv['COMPlus_TieredCompilation'] = '0'
     elif optLevel == 'full_opt':

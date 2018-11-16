@@ -849,9 +849,6 @@ void EEStartupHelper(COINITIEE fFlags)
             IfFailGo(E_OUTOFMEMORY);
         }
 
-        // Initialize contexts
-        Context::Initialize();
-
         g_pEEShutDownEvent = new CLREvent();
         g_pEEShutDownEvent->CreateManualEvent(FALSE);
 
@@ -950,8 +947,6 @@ void EEStartupHelper(COINITIEE fFlags)
 
         StackwalkCache::Init();
 
-        AppDomain::CreateADUnloadStartEvent();
-
         // In coreclr, clrjit is compiled into it, but SO work in clrjit has not been done.
 #ifdef FEATURE_STACK_PROBE
         if (CLRHosted() && GetEEPolicy()->GetActionOnFailure(FAIL_StackOverflow) == eRudeUnloadAppDomain)
@@ -983,11 +978,6 @@ void EEStartupHelper(COINITIEE fFlags)
         SystemDomain::System()->PublishAppDomainAndInformDebugger(SystemDomain::System()->DefaultDomain());
 #endif
 
-#ifdef FEATURE_PERFTRACING
-        // Start the event pipe if requested.
-        EventPipe::EnableOnStartup();
-#endif // FEATURE_PERFTRACING
-
 #endif // CROSSGEN_COMPILE
 
         SystemDomain::System()->Init();
@@ -1000,19 +990,6 @@ void EEStartupHelper(COINITIEE fFlags)
 
         SystemDomain::NotifyProfilerStartup();
 #endif // PROFILING_SUPPORTED
-
-#ifndef CROSSGEN_COMPILE
-        if (CLRHosted()
-#ifdef _DEBUG
-            || ((fFlags & COINITEE_DLL) == 0 &&
-                g_pConfig->GetHostTestADUnload())
-#endif
-           ) {
-                // If we are hosted, a host may specify unloading AD when a managed allocation in
-                // critical region fails.  We need to precreate a thread to unload AD.
-                AppDomain::CreateADUnloadWorker();
-        }
-#endif // CROSSGEN_COMPILE
 
         g_fEEInit = false;
 
@@ -1672,7 +1649,7 @@ void STDMETHODCALLTYPE EEShutDownHelper(BOOL fIsDllUnloading)
 
                     // Acquire the Crst lock before creating the IBCLoggingDisabler object.
                     // Only one thread at a time can be processing an IBC logging event.
-                    CrstHolder lock(g_IBCLogger.GetSync());
+                    CrstHolder lock(IBCLogger::GetSync());
                     {
                         IBCLoggingDisabler disableLogging( pInfo );  // runs IBCLoggingDisabler::DisableLogging
                         

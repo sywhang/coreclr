@@ -1,0 +1,54 @@
+parameters:
+  buildConfig: ''
+  archType: ''
+  osGroup: ''
+  name: ''
+  displayName: ''
+  condition: ''
+  dependsOn: ''
+  variables: {} ## any extra variables to add to the defaults defined below
+
+jobs:
+- template: /eng/common/templates/phases/base.yml@arcade
+  parameters:
+
+    name: ${{ parameters.name }}
+    displayName: ${{ parameters.displayName }}
+
+    condition: ${{ parameters.condition }}
+
+    dependsOn: ${{ parameters.dependsOn }}
+
+    queue:
+      ${{ if eq(parameters.osGroup, 'Linux') }}:
+        name: Hosted Ubuntu 1604
+      ${{ if and(eq(parameters.osGroup, 'Windows_NT'), ne(variables['System.TeamProject'], 'public')) }}:
+        name: Hosted Mac Internal
+      ${{ if and(eq(parameters.osGroup, 'Windows_NT'), eq(variables['System.TeamProject'], 'public')) }}:
+        name: Hosted MacOS
+      ${{ if and(eq(parameters.osGroup, 'Windows_NT'), ne(variables['System.TeamProject'], 'public')) }}:
+        name: dotnet-internal-temp
+      ${{ if and(eq(parameters.osGroup, 'Windows_NT'), eq(variables['System.TeamProject'], 'public')) }}:
+        name: dotnet-external-temp
+      timeoutInMinutes: 240
+
+    ${{ if eq(parameters.osGroup, 'Linux') }}:
+      agentOs: Ubuntu
+    ${{ if eq(parameters.osGroup, 'OSX') }}:
+      agentOs: MacOS
+    ${{ if eq(parameters.osGroup, 'Windows_NT') }}:
+      agentOs: Windows_NT
+
+    variables:
+      buildConfig: ${{ parameters.buildConfig }}
+      ${{ if eq(parameters.buildConfig, 'checked') }}:
+        buildConfigUpper: 'Checked'
+      ${{ if eq(parameters.buildConfig, 'debug') }}:
+        buildConfigUpper: 'Debug'
+      ${{ if eq(parameters.buildConfig, 'release') }}:
+        buildConfigUpper: 'Release'
+      archType: ${{ parameters.archType }}
+      osGroup: ${{ parameters.osGroup }}
+      ${{insert}}: ${{ parameters.variables }}
+
+    steps: ${{ parameters.steps }}

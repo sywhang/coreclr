@@ -133,7 +133,6 @@ public:
               BOOL fIsStatic, 
               BOOL fIsRVA, 
               BOOL fIsThreadLocal, 
-              BOOL fIsContextLocal, 
               LPCSTR pszFieldName);
 
     enum {
@@ -320,13 +319,6 @@ public:
         LIMITED_METHOD_DAC_CONTRACT;
 
         return m_isThreadLocal;
-    }
-
-    BOOL   IsContextStatic() const     // Static relative to a context
-    {
-        LIMITED_METHOD_DAC_CONTRACT;
-
-        return FALSE;
     }
 
     // Indicate that this field was added by EnC
@@ -765,34 +757,6 @@ public:
         WRAPPER_NO_CONTRACT;
 
         return IsFdPrivate(GetFieldProtection());
-    }
-
-    BOOL IsNotSerialized()
-    {
-        CONTRACTL
-        {
-            NOTHROW;
-            GC_NOTRIGGER;
-            SO_TOLERANT;
-            MODE_ANY;
-        }
-        CONTRACTL_END;
-
-        MethodTable *pMT = GetApproxEnclosingMethodTable();
-        if (pMT->IsSerializable() && !IsStatic())
-            return pMT->IsFieldNotSerialized(pMT->GetIndexForFieldDesc(this));
-        return IsFdNotSerialized(GetAttributes());
-    }
-
-    // Only safe to call this for non-static fields on serializable types.
-    BOOL IsOptionallySerialized()
-    {
-        WRAPPER_NO_CONTRACT;
-
-        _ASSERTE(!IsStatic() && GetApproxEnclosingMethodTable()->IsSerializable());
-
-        MethodTable *pMT = GetApproxEnclosingMethodTable();
-        return pMT->IsFieldOptionallySerialized(pMT->GetIndexForFieldDesc(this));
     }
 
     IMDInternalImport *GetMDImport()

@@ -26,13 +26,10 @@ namespace System.Text
         internal static readonly UnicodeEncoding s_bigEndianDefault = new UnicodeEncoding(bigEndian: true, byteOrderMark: true);
         internal static readonly UnicodeEncoding s_littleEndianDefault = new UnicodeEncoding(bigEndian: false, byteOrderMark: true);
 
-        private static readonly byte[] s_bigEndianPreamble = new byte[2] { 0xfe, 0xff };
-        private static readonly byte[] s_littleEndianPreamble = new byte[2] { 0xff, 0xfe };
+        private readonly bool isThrowException = false;
 
-        private bool isThrowException = false;
-
-        private bool bigEndian = false;
-        private bool byteOrderMark = true;
+        private readonly bool bigEndian = false;
+        private readonly bool byteOrderMark = false;
 
         // Unicode version 2.0 character size in bytes
         public const int CharSize = 2;
@@ -44,17 +41,17 @@ namespace System.Text
 
 
         public UnicodeEncoding(bool bigEndian, bool byteOrderMark)
-            : this(bigEndian, byteOrderMark, false)
+            : base(bigEndian ? 1201 : 1200)  //Set the data item.
         {
+            this.bigEndian = bigEndian;
+            this.byteOrderMark = byteOrderMark;
         }
 
 
         public UnicodeEncoding(bool bigEndian, bool byteOrderMark, bool throwOnInvalidBytes)
-            : base(bigEndian ? 1201 : 1200)  //Set the data item.
+            : this(bigEndian, byteOrderMark)
         {
             this.isThrowException = throwOnInvalidBytes;
-            this.bigEndian = bigEndian;
-            this.byteOrderMark = byteOrderMark;
 
             // Encoding constructor already did this, but it'll be wrong if we're throwing exceptions
             if (this.isThrowException)
@@ -1793,9 +1790,10 @@ namespace System.Text
         }
 
         public override ReadOnlySpan<byte> Preamble =>
-            GetType() != typeof(UnicodeEncoding) ? GetPreamble() : // in case a derived UnicodeEncoding overrode GetPreamble
-            byteOrderMark ? (bigEndian ? s_bigEndianPreamble : s_littleEndianPreamble) :
-            Array.Empty<byte>();
+            GetType() != typeof(UnicodeEncoding) ? new ReadOnlySpan<byte>(GetPreamble()) : // in case a derived UnicodeEncoding overrode GetPreamble
+            !byteOrderMark ? default :
+            bigEndian ? (ReadOnlySpan<byte>)new byte[2] { 0xfe, 0xff } : // uses C# compiler's optimization for static byte[] data
+            (ReadOnlySpan<byte>)new byte[2] { 0xff, 0xfe };
 
         public override int GetMaxByteCount(int charCount)
         {

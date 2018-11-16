@@ -45,6 +45,7 @@ class DynamicMethodDesc;
 class ReJitManager;
 class CodeVersionManager;
 class PrepareCodeConfig;
+class CallCounter;
 
 typedef DPTR(FCallMethodDesc)        PTR_FCallMethodDesc;
 typedef DPTR(ArrayMethodDesc)        PTR_ArrayMethodDesc;
@@ -284,7 +285,7 @@ public:
         }
         CONTRACTL_END
 
-        return !MayHaveNativeCode() || IsRemotingInterceptedViaPrestub() || IsVersionableWithPrecode();
+        return !MayHaveNativeCode() || IsVersionableWithPrecode();
     }
 
     void InterlockedUpdateFlags2(BYTE bMask, BOOL fSet);
@@ -709,51 +710,6 @@ public:
 #endif
     CHECK CheckActivated();
 
-
-    //================================================================
-    // REMOTING
-    //
-    // IsRemoting...: These predicates indicate how are remoting
-    // intercepts are implemented.
-    //
-    // Remoting intercepts are required for all invocations of  methods on
-    // MarshalByRef classes (including virtual calls on methods
-    // which end up invoking a method on the MarshalByRef class).
-    //
-    // Remoting intercepts are implemented by one of the following techniques:
-    //  (1) Non-virtual methods: inserting a stub in DoPrestub (for non-virtual calls)
-    //   See: IsRemotingInterceptedViaPrestub
-    //
-    //  (2) Virtual methods: by transparent proxy vtables, where all the entries in the vtable
-    //      are a special hook which traps into the remoting logic
-    //   See: IsRemotingInterceptedViaVirtualDispatch (context indicates
-    //        if it is a virtual call)
-    //
-    //  (3) Non-virtual-calls on virtual methods:
-    //      by forcing calls to be indirect and wrapping the
-    //      call with a stub returned by GetNonVirtualEntryPointForVirtualMethod.
-    //      (this is used when invoking virtual methods non-virtually using 'call')
-    //   See: IsRemotingInterceptedViaVirtualDispatch (context indicates
-    //        if it is a virtual call)
-    //
-    // Ultimately essentially all calls go through CTPMethodTable::OnCall in
-    // remoting.cpp.
-    //
-    // Check if this methoddesc needs to be intercepted
-    // by the context code, using a stub.
-    // Also see IsRemotingInterceptedViaVirtualDispatch()
-    BOOL IsRemotingInterceptedViaPrestub();
-
-    // Check if is intercepted by the context code, using the virtual table
-    // of TransparentProxy.
-    // If such a function is called non-virtually, it needs to be handled specially
-    BOOL IsRemotingInterceptedViaVirtualDispatch();
-
-    BOOL MayBeRemotingIntercepted();
-
-    //================================================================
-    // Does it represent a one way method call with no out/return parameters?
-
     //================================================================
     // FCalls.
     BOOL IsFCall()
@@ -796,6 +752,10 @@ public:
     // Returns the # of bytes of stack used by arguments. Does not include
     // arguments passed in registers.
     UINT SizeOfArgStack();
+
+    // Returns the # of bytes of stack used by arguments in a call from native to this function.
+    // Does not include arguments passed in registers.
+    UINT SizeOfNativeArgStack();
 
     // Returns the # of bytes to pop after a call. Not necessary the
     // same as SizeOfArgStack()!
@@ -1266,12 +1226,13 @@ public:
     }
 #endif
 
-    // Returns a code version that represents the first (default)
-    // code body that this method would have.
-    NativeCodeVersion GetInitialCodeVersion()
+    bool RequestedAggressiveOptimization()
     {
-        LIMITED_METHOD_DAC_CONTRACT;
-        return NativeCodeVersion(dac_cast<PTR_MethodDesc>(this));
+        WRAPPER_NO_CONTRACT;
+
+        return
+            IsIL() && // only makes sense for IL methods, and this implies !IsNoMetadata()
+            IsMiAggressiveOptimization(GetImplAttrs());
     }
 
     // Does this method force the NativeCodeSlot to stay fixed after it
@@ -1343,8 +1304,6 @@ public:
     BOOL MayHaveNativeCode();
 
     ULONG GetRVA();
-
-    BOOL IsClassConstructorTriggeredViaPrestub();
 
 public:
 
@@ -2880,6 +2839,8 @@ public:
     LPVOID FindEntryPoint(HINSTANCE hMod) const;
 
 private:
+    FARPROC FindEntryPointWithMangling(HINSTANCE mod, PTR_CUTF8 entryPointName) const;
+
 #ifdef MDA_SUPPORTED    
     Stub* GenerateStubForMDA(LPVOID pNativeTarget, Stub *pInnerStub);
 #endif // MDA_SUPPORTED

@@ -765,26 +765,7 @@ ClrDataAccess::GetThreadData(CLRDATA_ADDRESS threadAddr, struct DacpThreadData *
     threadData->allocContextPtr = TO_CDADDR(thread->m_alloc_context.alloc_ptr);
     threadData->allocContextLimit = TO_CDADDR(thread->m_alloc_context.alloc_limit);
 
-    // @todo Microsoft: the following assignment is pointless--we're just getting the
-    // target address of the m_pFiberData field of the Thread instance. Then we're going to
-    // compute it again as the argument to ReadVirtual. Ultimately, we want the value of 
-    // that field, not its address. We already have that value as part of thread (the 
-    // marshaled Thread instance).This should just go away and we should simply have:
-    // threadData->fiberData = TO_CDADDR(thread->m_pFiberData );
-    // instead of the next 11 lines. 
-    threadData->fiberData = (CLRDATA_ADDRESS)PTR_HOST_MEMBER_TADDR(Thread, thread, m_pFiberData);
-
-    ULONG32 returned = 0;
-    TADDR Value = NULL;
-    HRESULT hr = m_pTarget->ReadVirtual(PTR_HOST_MEMBER_TADDR(Thread, thread, m_pFiberData),
-                                        (PBYTE)&Value,
-                                        sizeof(TADDR),
-                                        &returned);
-    
-    if ((hr  == S_OK) && (returned == sizeof(TADDR)))
-    {
-        threadData->fiberData = (CLRDATA_ADDRESS) Value;
-    }
+    threadData->fiberData = NULL;
 
     threadData->pFrame = PTR_CDADDR(thread->m_pFrame);
     threadData->context = PTR_CDADDR(thread->m_Context);
@@ -1948,6 +1929,33 @@ ClrDataAccess::GetMethodTableFieldData(CLRDATA_ADDRESS mt, struct DacpMethodTabl
 
         data->wContextStaticsSize = 0;
         data->wContextStaticOffset = 0;
+    }
+
+    SOSDacLeave();
+    return hr;
+}
+
+HRESULT
+ClrDataAccess::GetMethodTableCollectibleData(CLRDATA_ADDRESS mt, struct DacpMethodTableCollectibleData *data)
+{
+    if (mt == 0 || data == NULL)
+        return E_INVALIDARG;
+
+    SOSDacEnter();
+
+    MethodTable* pMT = PTR_MethodTable(TO_TADDR(mt));
+    BOOL bIsFree = FALSE;
+    if (!pMT || !DacValidateMethodTable(pMT, bIsFree))
+    {
+        hr = E_INVALIDARG;
+    }
+    else
+    {
+        data->bCollectible = pMT->Collectible();
+        if (data->bCollectible)
+        {
+            data->LoaderAllocatorObjectHandle = pMT->GetLoaderAllocatorObjectHandle();
+        }
     }
 
     SOSDacLeave();
@@ -3811,7 +3819,7 @@ ClrDataAccess::EnumWksGlobalMemoryRegions(CLRDataEnumMemoryFlags flags)
     Dereference(g_gcDacGlobals->finalize_queue).EnumMem();
 
     // Enumerate the entire generation table, which has variable size
-    size_t gen_table_size = g_gcDacGlobals->generation_size * (*g_gcDacGlobals->max_gen + 1);
+    size_t gen_table_size = g_gcDacGlobals->generation_size * (*g_gcDacGlobals->max_gen + 2);
     DacEnumMemoryRegion(dac_cast<TADDR>(g_gcDacGlobals->generation_table), gen_table_size);
 
     if (g_gcDacGlobals->generation_table.IsValid())

@@ -191,7 +191,7 @@ public:
 #endif // POINTER_BITS
     }
 
-    static const element_t Null() 
+    static element_t Null()
 {
         WRAPPER_NO_CONTRACT;
         return NULL;
@@ -203,7 +203,7 @@ public:
         return e == NULL;
     }
 
-    static const element_t Deleted()
+    static element_t Deleted()
     {
         WRAPPER_NO_CONTRACT;
         return (element_t)-1;
@@ -599,7 +599,7 @@ public:
         return (dwInstrEnabled != 0);
     }
 
-    Crst * GetSync();
+    static CrstStatic * GetSync();
 
 private:
     void LogMethodAccessHelper(const MethodDesc* pMD, ULONG flagNum);
@@ -614,7 +614,7 @@ private:
 private:
     DWORD dwInstrEnabled;
     
-    Volatile<Crst*> m_sync;
+    static CrstStatic m_sync;
 #endif // DACCESS_COMPILE
 };
 

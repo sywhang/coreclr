@@ -435,6 +435,15 @@ void ZapInfo::CompileMethod()
     // this they can add the hint and reduce the perf cost at runtime.
     m_pImage->m_pPreloader->PrePrepareMethodIfNecessary(m_currentMethodHandle);
 
+    DWORD methodAttribs = getMethodAttribs(m_currentMethodHandle);
+    if (methodAttribs & CORINFO_FLG_AGGRESSIVE_OPT)
+    {
+        // Skip methods marked with MethodImplOptions.AggressiveOptimization, they will be jitted instead. In the future,
+        // consider letting the JIT determine whether aggressively optimized code can/should be pregenerated for the method
+        // instead of this check.
+        return;
+    }
+
     m_jitFlags = ComputeJitFlags(m_currentMethodHandle);
 
 #ifdef FEATURE_READYTORUN_COMPILER
@@ -443,7 +452,6 @@ void ZapInfo::CompileMethod()
         // READYTORUN: FUTURE: Producedure spliting
         m_jitFlags.Clear(CORJIT_FLAGS::CORJIT_FLAG_PROCSPLIT);
 
-        DWORD methodAttribs = getMethodAttribs(m_currentMethodHandle);
         if (!(methodAttribs & CORINFO_FLG_NOSECURITYWRAP) || (methodAttribs & CORINFO_FLG_SECURITYCHECK))
         {
             m_zapper->Warning(W("ReadyToRun: Methods with security checks not supported\n"));
@@ -2137,29 +2145,28 @@ void ZapInfo::getCallInfo(CORINFO_RESOLVED_TOKEN * pResolvedToken,
                 return;
             }
 
-#ifdef FEATURE_READYTORUN_COMPILER
             if (IsReadyToRunCompilation())
             {
                 ZapImport * pImport = m_pImage->GetImportTable()->GetStubDispatchCell(pResolvedToken);
 
                 pResult->stubLookup.constLookup.accessType   = IAT_PVALUE;
                 pResult->stubLookup.constLookup.addr         = pImport;
-                break;
             }
-#endif
+            else
+            {
 
-            CORINFO_CLASS_HANDLE calleeOwner = pResolvedToken->hClass;
-            CORINFO_METHOD_HANDLE callee = pResolvedToken->hMethod;
-            _ASSERTE(callee == pResult->hMethod);
+                CORINFO_CLASS_HANDLE calleeOwner = pResolvedToken->hClass;
+                CORINFO_METHOD_HANDLE callee = pResolvedToken->hMethod;
+                _ASSERTE(callee == pResult->hMethod);
 
-            //
-            // Create the indirection cell
-            //
-            pTarget = m_pImage->GetImportTable()->GetStubDispatchCell(calleeOwner, callee);
+                //
+                // Create the indirection cell
+                //
+                pTarget = m_pImage->GetImportTable()->GetStubDispatchCell(calleeOwner, callee);
 
-            pResult->stubLookup.constLookup.accessType = IAT_PVALUE;
-
-            pResult->stubLookup.constLookup.addr = pTarget;
+                pResult->stubLookup.constLookup.accessType = IAT_PVALUE;
+                pResult->stubLookup.constLookup.addr = pTarget;
+            }
         }
         break;
 
@@ -2175,7 +2182,6 @@ void ZapInfo::getCallInfo(CORINFO_RESOLVED_TOKEN * pResolvedToken,
         return;
 
     case CORINFO_CALL:
-#ifdef FEATURE_READYTORUN_COMPILER
         if (IsReadyToRunCompilation())
         {
             // Constrained token is not interesting with this transforms
@@ -2199,11 +2205,11 @@ void ZapInfo::getCallInfo(CORINFO_RESOLVED_TOKEN * pResolvedToken,
             pResult->codePointerLookup.constLookup.accessType   = IAT_PVALUE;
             pResult->codePointerLookup.constLookup.addr         = pImport;
         }
-#endif
         break;
 
     case CORINFO_VIRTUALCALL_VTABLE:
-        _ASSERTE(!IsReadyToRunCompilation());
+        // Only calls within the CoreLib version bubble support fragile NI codegen with vtable based calls, for better performance (because 
+        // CoreLib and the runtime will always be updated together anyways - this is a special case)
         break;
 
     case CORINFO_VIRTUALCALL_LDVIRTFTN:
@@ -2231,7 +2237,6 @@ void ZapInfo::getCallInfo(CORINFO_RESOLVED_TOKEN * pResolvedToken,
         break;
     }
 
-#ifdef FEATURE_READYTORUN_COMPILER
     if (IsReadyToRunCompilation() && pResult->sig.hasTypeArg())
     {
         if (pResult->exactContextNeedsRuntimeLookup)
@@ -2263,8 +2268,8 @@ void ZapInfo::getCallInfo(CORINFO_RESOLVED_TOKEN * pResolvedToken,
             AppendConditionalImport(pImport);
         }
     }
-#endif
 }
+
 BOOL ZapInfo::canAccessFamily(CORINFO_METHOD_HANDLE hCaller,
                               CORINFO_CLASS_HANDLE hInstanceType)
 {
@@ -2275,7 +2280,6 @@ BOOL ZapInfo::isRIDClassDomainID (CORINFO_CLASS_HANDLE cls)
 {
     return m_pEEJitInfo->isRIDClassDomainID(cls);
 }
-
 
 unsigned ZapInfo::getClassDomainID (CORINFO_CLASS_HANDLE cls, void **ppIndirection)
 {
@@ -2326,6 +2330,16 @@ void * ZapInfo::getFieldAddress(CORINFO_FIELD_HANDLE field, void **ppIndirection
 
     // Field address is not aligned thus we can not store it in the same location as token.
     *ppIndirection = m_pImage->GetInnerPtr(pImport, TARGET_POINTER_SIZE);
+
+    return NULL;
+}
+
+CORINFO_CLASS_HANDLE ZapInfo::getStaticFieldCurrentClass(CORINFO_FIELD_HANDLE field, bool* pIsSpeculative)
+{
+    if (pIsSpeculative != NULL)
+    {
+        *pIsSpeculative = true;
+    }
 
     return NULL;
 }
@@ -3304,6 +3318,16 @@ unsigned ZapInfo::getClassSize(CORINFO_CLASS_HANDLE cls)
 #endif
 
     return size;
+}
+
+unsigned ZapInfo::getHeapClassSize(CORINFO_CLASS_HANDLE cls)
+{
+    return m_pEEJitInfo->getHeapClassSize(cls);
+}
+
+BOOL ZapInfo::canAllocateOnStack(CORINFO_CLASS_HANDLE cls)
+{
+    return m_pEEJitInfo->canAllocateOnStack(cls);
 }
 
 unsigned ZapInfo::getClassAlignmentRequirement(CORINFO_CLASS_HANDLE cls, BOOL fDoubleAlignHint)

@@ -37,24 +37,6 @@
 #include "perfmap.h"
 #endif // FEATURE_PERFMAP
 
-BOOL DomainAssembly::IsUnloading()
-{
-    WRAPPER_NO_CONTRACT;
-    SUPPORTS_DAC;
-
-    BOOL fIsUnloading = FALSE;
-
-    fIsUnloading = this->GetAppDomain()->IsUnloading();
-
-    if (!fIsUnloading)
-    {
-        fIsUnloading = m_fDebuggerUnloadStarted;
-    }
-
-    return fIsUnloading;
-}
-
-
 #ifndef DACCESS_COMPILE
 DomainFile::DomainFile(AppDomain *pDomain, PEFile *pFile)
   : m_pDomain(pDomain),
@@ -748,8 +730,7 @@ void DomainFile::VerifyNativeImageDependencies(bool verifyOnly)
         CORCOMPILE_VERSION_INFO * pDependencyNativeVersion =
                 pDependencyNativeLayout->GetNativeVersionInfo();
 
-        LoggablePEAssembly logAsm(pDependencyFile);
-        if (!RuntimeVerifyNativeImageDependency(pDependency, pDependencyNativeVersion, &logAsm))
+        if (!RuntimeVerifyNativeImageDependency(pDependency, pDependencyNativeVersion, pDependencyFile))
             goto NativeImageRejected;
     }
     LOG((LF_ZAP, LL_INFO100, "ZAP: Native image dependencies for %S OK.\n",
@@ -1075,6 +1056,10 @@ void DomainFile::VtableFixups()
 {
     WRAPPER_NO_CONTRACT;
 
+#if !defined(CROSSGEN_COMPILE)
+    if (!GetCurrentModule()->IsResource())
+        GetCurrentModule()->FixupVTables();
+#endif // !CROSSGEN_COMPILE
 }
 
 void DomainFile::FinishLoad()
@@ -1376,11 +1361,7 @@ BOOL DomainFile::PropagateNewActivation(Module *pModuleFrom, Module *pModuleTo)
         while (ai.Next())
         {
             STRESS_LOG3(LF_LOADER, LL_INFO100,"Attempting to propagate domain-neutral conditional module dependency %p -> %p to AppDomain %i\n",pModuleFrom,pModuleTo,ai.GetDomain()->GetId().m_dwId);
-            // This is to minimize the chances of trying to run code in an appdomain that's shutting down.
-            if (ai.GetDomain()->CanThreadEnter(pThread))
-            {
-                completed &= PropagateActivationInAppDomain(pModuleFrom,pModuleTo,ai.GetDomain());
-            }
+            completed &= PropagateActivationInAppDomain(pModuleFrom,pModuleTo,ai.GetDomain());
         }
     }
     else

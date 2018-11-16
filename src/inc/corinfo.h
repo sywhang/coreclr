@@ -213,11 +213,11 @@ TODO: Talk about initializing strutures before use
     #define SELECTANY extern __declspec(selectany)
 #endif
 
-SELECTANY const GUID JITEEVersionIdentifier = { /* 45aafd4d-1d23-4647-9ce1-cf09a2677ca0 */
-    0x45aafd4d,
-    0x1d23,
-    0x4647,
-    {0x9c, 0xe1, 0xcf, 0x09, 0xa2, 0x67, 0x7c, 0xa0}
+SELECTANY const GUID JITEEVersionIdentifier = { /* b2da2a6e-72fa-4730-b47c-4c9275e1c5ce */
+    0xb2da2a6e,
+    0x72fa,
+    0x4730,
+    {0xb4, 0x7c, 0x4c, 0x92, 0x75, 0xe1, 0xc5, 0xce}
 };
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -642,6 +642,7 @@ enum CorInfoHelpFunc
 
     CORINFO_HELP_THROW_ARGUMENTEXCEPTION,           // throw ArgumentException
     CORINFO_HELP_THROW_ARGUMENTOUTOFRANGEEXCEPTION, // throw ArgumentOutOfRangeException
+    CORINFO_HELP_THROW_NOT_IMPLEMENTED,             // throw NotImplementedException
     CORINFO_HELP_THROW_PLATFORM_NOT_SUPPORTED,      // throw PlatformNotSupportedException
     CORINFO_HELP_THROW_TYPE_NOT_SUPPORTED,          // throw TypeNotSupportedException
 
@@ -824,7 +825,7 @@ enum CorInfoFlag
     CORINFO_FLG_NOGCCHECK             = 0x00200000, // This method is FCALL that has no GC check.  Don't put alone in loops
     CORINFO_FLG_INTRINSIC             = 0x00400000, // This method MAY have an intrinsic ID
     CORINFO_FLG_CONSTRUCTOR           = 0x00800000, // This method is an instance or type initializer
-//  CORINFO_FLG_UNUSED                = 0x01000000,
+    CORINFO_FLG_AGGRESSIVE_OPT        = 0x01000000, // The method may contain hot code and should be aggressively optimized if possible
 //  CORINFO_FLG_UNUSED                = 0x02000000,
     CORINFO_FLG_NOSECURITYWRAP        = 0x04000000, // The method requires no security checks
     CORINFO_FLG_DONT_INLINE           = 0x10000000, // The method should not be inlined
@@ -2383,6 +2384,15 @@ public:
             CORINFO_CLASS_HANDLE        cls
             ) = 0;
 
+    // return the number of bytes needed by an instance of the class allocated on the heap
+    virtual unsigned getHeapClassSize(
+        CORINFO_CLASS_HANDLE        cls
+    ) = 0;
+
+    virtual BOOL canAllocateOnStack(
+        CORINFO_CLASS_HANDLE cls
+    ) = 0;
+
     virtual unsigned getClassAlignmentRequirement (
             CORINFO_CLASS_HANDLE        cls,
             BOOL                        fDoubleAlignHint = FALSE
@@ -2640,7 +2650,7 @@ public:
     // result of calling getMemberParent.
     virtual CorInfoType getFieldType(
                         CORINFO_FIELD_HANDLE    field,
-                        CORINFO_CLASS_HANDLE   *structType,
+                        CORINFO_CLASS_HANDLE   *structType = NULL,
                         CORINFO_CLASS_HANDLE    memberParent = NULL /* IN */
                         ) = 0;
 
@@ -3107,6 +3117,22 @@ public:
     virtual void* getFieldAddress(
                     CORINFO_FIELD_HANDLE    field,
                     void                  **ppIndirection = NULL
+                    ) = 0;
+
+    // If pIsSpeculative is NULL, return the class handle for the value of ref-class typed
+    // static readonly fields, if there is a unique location for the static and the class
+    // is already initialized.
+    // 
+    // If pIsSpeculative is not NULL, fetch the class handle for the value of all ref-class
+    // typed static fields, if there is a unique location for the static and the field is
+    // not null.
+    //
+    // Set *pIsSpeculative true if this type may change over time (field is not readonly or
+    // is readonly but class has not yet finished initialization). Set *pIsSpeculative false
+    // if this type will not change.
+    virtual CORINFO_CLASS_HANDLE getStaticFieldCurrentClass(
+                    CORINFO_FIELD_HANDLE    field,
+                    bool                   *pIsSpeculative = NULL
                     ) = 0;
 
     // registers a vararg sig & returns a VM cookie for it (which can contain other stuff)

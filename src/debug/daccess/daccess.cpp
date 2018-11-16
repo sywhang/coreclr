@@ -3278,6 +3278,10 @@ ClrDataAccess::QueryInterface(THIS_
     {
         ifaceRet = static_cast<ISOSDacInterface5*>(this);
     }
+    else if (IsEqualIID(interfaceId, __uuidof(ISOSDacInterface6)))
+    {
+        ifaceRet = static_cast<ISOSDacInterface6*>(this);
+    }
     else
     {
         *iface = NULL;
@@ -5840,7 +5844,9 @@ ClrDataAccess::RawGetMethodName(
 #endif
         if (pStubManager == PrecodeStubManager::g_pManager)
         {
+#ifdef FEATURE_PREJIT
         PrecodeStub:
+#endif
             PCODE alignedAddress = AlignDown(TO_TADDR(address), PRECODE_ALIGNMENT);
 
 #ifdef _TARGET_ARM_
@@ -5851,9 +5857,6 @@ ClrDataAccess::RawGetMethodName(
 
 #ifdef HAS_THISPTR_RETBUF_PRECODE
             maxPrecodeSize = max(maxPrecodeSize, sizeof(ThisPtrRetBufPrecode));
-#endif
-#ifdef HAS_REMOTING_PRECODE
-            maxPrecodeSize = max(maxPrecodeSize, sizeof(RemotingPrecode));
 #endif
 
             for (SIZE_T i = 0; i < maxPrecodeSize / PRECODE_ALIGNMENT; i++)
@@ -5888,7 +5891,9 @@ ClrDataAccess::RawGetMethodName(
         else
         if (pStubManager == JumpStubStubManager::g_pManager)
         {
+#ifdef FEATURE_PREJIT
         JumpStub:
+#endif
             PCODE pTarget = decodeBackToBackJump(TO_TADDR(address));
 
             HRESULT hr = GetRuntimeNameByAddress(pTarget, flags, bufLen, symbolLen, symbolBuf, NULL);

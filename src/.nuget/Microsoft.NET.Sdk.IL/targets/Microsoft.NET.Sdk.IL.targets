@@ -23,6 +23,7 @@ Copyright (c) .NET Foundation. All rights reserved.
     <_OSPlatform Condition="$([MSBuild]::IsOSPlatform('windows'))">win</_OSPlatform>
     <_OSPlatform Condition="$([MSBuild]::IsOSPlatform('linux'))">linux</_OSPlatform>
     <_OSPlatform Condition="$([MSBuild]::IsOSPlatform('osx'))">osx</_OSPlatform>
+    <_OSPlatform Condition="$([MSBuild]::IsOSPlatform('freebsd'))">freebsd</_OSPlatform>
     <_OSArchitecture>$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)</_OSArchitecture>
 
     <MicrosoftNetCoreIlasmPackageRuntimeId Condition="'$(MicrosoftNetCoreIlasmPackageRuntimeId)' == ''">$(_OSPlatform)-$(_OSArchitecture.ToLower())</MicrosoftNetCoreIlasmPackageRuntimeId>
@@ -77,6 +78,7 @@ Copyright (c) .NET Foundation. All rights reserved.
       <_IlasmSwitches Condition="'$(DebugType)' == 'Impl'">$(_IlasmSwitches) -DEBUG=IMPL</_IlasmSwitches>
       <_IlasmSwitches Condition="'$(DebugType)' == 'PdbOnly'">$(_IlasmSwitches) -DEBUG=OPT</_IlasmSwitches>
       <_IlasmSwitches Condition="'$(Optimize)' == 'True'">$(_IlasmSwitches) -OPTIMIZE</_IlasmSwitches>
+      <_IlasmSwitches Condition="'$(IlasmResourceFile)' != ''">$(_IlasmSwitches) -RESOURCES=$(IlasmResourceFile)</_IlasmSwitches>
     </PropertyGroup>
 
     <!-- Having to copy these binaries is really inefficient. https://github.com/dotnet/coreclr/issues/18892 tracks making the ilasm tool self-contained  -->

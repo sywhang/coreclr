@@ -9,13 +9,14 @@
 class ErrorMarshalTesting : public UnknownImpl, public IErrorMarshalTesting
 {
 public: // IErrorMarshalTesting
-    DEF_RAWFUNC(Throw_HResult)(
-        /*[in]*/ long hresultToReturn)
+    DEF_FUNC(Throw_HResult)(
+        /*[in]*/ int hresultToReturn)
     {
         return HRESULT{ hresultToReturn };
     }
-    long STDMETHODCALLTYPE Return_As_HResult(
-        /*[in]*/ long hresultToReturn)
+
+    int STDMETHODCALLTYPE Return_As_HResult(
+        /*[in]*/ int hresultToReturn)
     {
         return hresultToReturn;
     }

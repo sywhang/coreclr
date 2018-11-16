@@ -2265,7 +2265,7 @@ void StackTraceInfo::SaveStackTrace(BOOL bAllowAllocMem, OBJECTHANDLE hThrowable
     _ASSERTE(! bSkipLastElement || ! bReplaceStack);
 
     bool         fSuccess = false;
-    MethodTable* pMT      = ObjectFromHandle(hThrowable)->GetTrueMethodTable();
+    MethodTable* pMT      = ObjectFromHandle(hThrowable)->GetMethodTable();
 
     // Check if the flag indicating foreign exception raise has been setup or not,
     // and then reset it so that subsequent processing of managed frames proceeds
@@ -2751,7 +2751,7 @@ VOID DECLSPEC_NORETURN RaiseTheException(OBJECTREF throwable, BOOL rethrow
     STATIC_CONTRACT_MODE_COOPERATIVE;
 
     LOG((LF_EH, LL_INFO100, "RealCOMPlusThrow throwing %s\n",
-        throwable->GetTrueMethodTable()->GetDebugClassName()));
+        throwable->GetMethodTable()->GetDebugClassName()));
 
     if (throwable == NULL)
     {
@@ -2837,7 +2837,7 @@ HRESULT GetHRFromThrowable(OBJECTREF throwable)
     STATIC_CONTRACT_MODE_ANY;
 
     HRESULT    hr  = E_FAIL;
-    MethodTable *pMT = throwable->GetTrueMethodTable();
+    MethodTable *pMT = throwable->GetMethodTable();
 
     // Only Exception objects have a HResult field
     // So don't fetch the field unless we have an exception
@@ -2909,7 +2909,7 @@ VOID DECLSPEC_NORETURN RaiseTheExceptionInternalOnly(OBJECTREF throwable, BOOL r
 #ifdef _DEBUG
     // If ThreadAbort exception is thrown, the thread should be marked with AbortRequest.
     // If not, we may see unhandled exception.
-    if (param.throwable->GetTrueMethodTable() == g_pThreadAbortExceptionClass)
+    if (param.throwable->GetMethodTable() == g_pThreadAbortExceptionClass)
     {
         _ASSERTE(GetThread()->IsAbortRequested()
 #ifdef _TARGET_X86_
@@ -3821,7 +3821,7 @@ BOOL IsExceptionOfType(RuntimeExceptionKind reKind, OBJECTREF *pThrowable)
     if (*pThrowable == NULL)
         return FALSE;
 
-    MethodTable *pThrowableMT = (*pThrowable)->GetTrueMethodTable();
+    MethodTable *pThrowableMT = (*pThrowable)->GetMethodTable();
 
     // IsExceptionOfType is supported for mscorlib exception types only
     _ASSERTE(reKind <= kLastExceptionInMscorlib);
@@ -4767,7 +4767,7 @@ BOOL UpdateCurrentThrowable(PEXCEPTION_RECORD pExceptionRecord)
             //        to inspect the thread to see what the throwable is on an unhandled
             //        exception.. (but clearly it needs to be fixed asap)
             //        We have the same problem in EEPolicy::LogFatalError().
-            LOG((LF_EH, LL_INFO100, "UpdateCurrentThrowable: setting throwable to %s\n", (oThrowable == NULL) ? "NULL" : oThrowable->GetTrueMethodTable()->GetDebugClassName()));
+            LOG((LF_EH, LL_INFO100, "UpdateCurrentThrowable: setting throwable to %s\n", (oThrowable == NULL) ? "NULL" : oThrowable->GetMethodTable()->GetDebugClassName()));
             pThread->SafeSetThrowables(oThrowable);
 #endif // WIN64EXCEPTIONS
         }
@@ -5557,8 +5557,8 @@ DefaultCatchHandler(PEXCEPTION_POINTERS pExceptionPointers,
 #endif
 
     GCPROTECT_BEGIN(throwable);
-    //BOOL IsStackOverflow = (throwable->GetTrueMethodTable() == g_pStackOverflowExceptionClass);
-    BOOL IsOutOfMemory = (throwable->GetTrueMethodTable() == g_pOutOfMemoryExceptionClass);
+    //BOOL IsStackOverflow = (throwable->GetMethodTable() == g_pStackOverflowExceptionClass);
+    BOOL IsOutOfMemory = (throwable->GetMethodTable() == g_pOutOfMemoryExceptionClass);
 
     // Notify the AppDomain that we have taken an unhandled exception.  Can't notify of stack overflow -- guard
     // page is not yet reset.
@@ -5765,7 +5765,7 @@ BOOL NotifyAppDomainsOfUnhandledException(
 #endif
 
     GCPROTECT_BEGIN(throwable);
-    //BOOL IsStackOverflow = (throwable->GetTrueMethodTable() == g_pStackOverflowExceptionClass);
+    //BOOL IsStackOverflow = (throwable->GetMethodTable() == g_pStackOverflowExceptionClass);
 
     // Notify the AppDomain that we have taken an unhandled exception.  Can't notify of stack overflow -- guard
     // page is not yet reset.
@@ -6966,6 +6966,48 @@ AdjustContextForWriteBarrier(
 {
     WRAPPER_NO_CONTRACT;
 
+#ifdef FEATURE_DATABREAKPOINT
+
+    // If pExceptionRecord is null, it means it is called from EEDbgInterfaceImpl::AdjustContextForWriteBarrierForDebugger()
+    // This is called only when a data breakpoint is hitm which could be inside a JIT write barrier helper and required
+    // this logic to help unwind out of it. For the x86, not patched case, we assume the IP lies within the region where we 
+    // have already saved the registers on the stack, and therefore the code unwind those registers as well. This is not true 
+    // for the usual AV case where the registers are not saved yet.
+
+    if (pExceptionRecord == nullptr)
+    {
+        PCODE ip = GetIP(pContext);
+#if defined(_TARGET_X86_)
+        bool withinWriteBarrierGroup = ((ip >= (PCODE) JIT_WriteBarrierGroup) && (ip <= (PCODE) JIT_WriteBarrierGroup_End));
+        bool withinPatchedWriteBarrierGroup = ((ip >= (PCODE) JIT_PatchedWriteBarrierGroup) && (ip <= (PCODE) JIT_PatchedWriteBarrierGroup_End));
+        if (withinWriteBarrierGroup || withinPatchedWriteBarrierGroup)
+        {
+            DWORD* esp = (DWORD*)pContext->Esp;
+            if (withinWriteBarrierGroup)
+            {
+#if defined(WRITE_BARRIER_CHECK)
+                pContext->Ebp = *esp++;
+                pContext->Ecx = *esp++;
+#endif
+            }
+            pContext->Eip = *esp++;
+            pContext->Esp = (DWORD)esp;
+            return TRUE;
+        }
+#elif defined(_TARGET_AMD64_)
+        if (IsIPInMarkedJitHelper((UINT_PTR)ip))
+        {
+            Thread::VirtualUnwindToFirstManagedCallFrame(pContext);
+            return TRUE;
+        }
+#else
+        #error Not supported
+#endif
+        return FALSE;
+    }
+
+#endif // FEATURE_DATABREAKPOINT
+
 #if defined(_TARGET_X86_) && !defined(PLATFORM_UNIX)
     void* f_IP = (void *)GetIP(pContext);
 
@@ -7436,7 +7478,6 @@ LONG WINAPI CLRVectoredExceptionHandler(PEXCEPTION_POINTERS pExceptionInfo)
     }
 #endif // defined(WIN64EXCEPTIONS) && defined(FEATURE_HIJACK)
 
-#ifndef FEATURE_PAL
     if (IsSOExceptionCode(pExceptionInfo->ExceptionRecord->ExceptionCode))
     {
         //
@@ -7475,9 +7516,6 @@ LONG WINAPI CLRVectoredExceptionHandler(PEXCEPTION_POINTERS pExceptionInfo)
         //END_ENTRYPOINT_VOIDRET;
     //
     return retVal;
-#else // !FEATURE_PAL
-    return CLRVectoredExceptionHandlerPhase2(pExceptionInfo);
-#endif // !FEATURE_PAL
 }
 
 LONG WINAPI CLRVectoredExceptionHandlerPhase2(PEXCEPTION_POINTERS pExceptionInfo)
@@ -7603,8 +7641,7 @@ LONG WINAPI CLRVectoredExceptionHandlerPhase2(PEXCEPTION_POINTERS pExceptionInfo
             return EXCEPTION_CONTINUE_SEARCH;
         }
 
-        // The breakpoint was from managed or the runtime.  Handle it.  Or,
-        //  this may be a Rotor build.
+        // The breakpoint was from managed or the runtime.  Handle it.
         return UserBreakpointFilter(pExceptionInfo);
     }
 
@@ -7837,7 +7874,7 @@ BOOL IsIPInEE(void *ip)
     }
 }
 
-#if defined(_TARGET_AMD64_) && defined(FEATURE_HIJACK)
+#if defined(FEATURE_HIJACK) && (!defined(_TARGET_X86_) || defined(FEATURE_PAL))
 
 // This function is used to check if the specified IP is in the prolog or not.
 bool IsIPInProlog(EECodeInfo *pCodeInfo)
@@ -7854,6 +7891,9 @@ bool IsIPInProlog(EECodeInfo *pCodeInfo)
 
     _ASSERTE(pCodeInfo->IsValid());
 
+#ifdef _TARGET_AMD64_
+
+    // Optimized version for AMD64 that doesn't need to go through the GC info decoding
     PTR_RUNTIME_FUNCTION funcEntry = pCodeInfo->GetFunctionEntry();
 
     // We should always get a function entry for a managed method
@@ -7863,8 +7903,31 @@ bool IsIPInProlog(EECodeInfo *pCodeInfo)
     PUNWIND_INFO pUnwindInfo = (PUNWIND_INFO)(pCodeInfo->GetModuleBase() + funcEntry->UnwindData);
 
     // Check if the specified IP is beyond the prolog or not.
-    DWORD dwPrologLen = pUnwindInfo->SizeOfProlog;
-    if (pCodeInfo->GetRelOffset() >= dwPrologLen)
+    DWORD prologLen = pUnwindInfo->SizeOfProlog;
+
+#else // _TARGET_AMD64_
+
+    GCInfoToken    gcInfoToken = pCodeInfo->GetGCInfoToken();
+
+#ifdef USE_GC_INFO_DECODER
+
+    GcInfoDecoder gcInfoDecoder(
+        gcInfoToken,
+        DECODE_PROLOG_LENGTH
+    );
+
+    DWORD prologLen = gcInfoDecoder.GetPrologSize();
+
+#else // USE_GC_INFO_DECODER
+
+    size_t prologLen;
+    pCodeInfo->GetCodeManager()->IsInPrologOrEpilog(0, gcInfoToken, &prologLen);
+
+#endif // USE_GC_INFO_DECODER
+
+#endif // _TARGET_AMD64_
+
+    if (pCodeInfo->GetRelOffset() >= prologLen)
     {
         fInsideProlog = false;
     }
@@ -7887,11 +7950,11 @@ bool IsIPInEpilog(PTR_CONTEXT pContextToCheck, EECodeInfo *pCodeInfo, BOOL *pSaf
     CONTRACTL_END;
 
     TADDR ipToCheck = GetIP(pContextToCheck);
-    
+
     _ASSERTE(pCodeInfo->IsValid());
-    
+
     // The Codeinfo should correspond to the IP we are interested in.
-    _ASSERTE(ipToCheck == pCodeInfo->GetCodeAddress());
+    _ASSERTE(PCODEToPINSTR(ipToCheck) == pCodeInfo->GetCodeAddress());
 
     // By default, assume its safe to inject the abort.
     *pSafeToInjectThreadAbort = TRUE;
@@ -7918,11 +7981,10 @@ bool IsIPInEpilog(PTR_CONTEXT pContextToCheck, EECodeInfo *pCodeInfo, BOOL *pSaf
     // RtlVirtualUnwind against "ipToCheck" results in a NULL personality routine, it implies that we are inside
     // the epilog.
 
-    DWORD64 imageBase = 0;
-    PUNWIND_INFO pUnwindInfo = NULL;
+    DWORD_PTR imageBase = 0;
     CONTEXT tempContext;
     PVOID HandlerData;
-    DWORD64 establisherFrame = 0;
+    DWORD_PTR establisherFrame = 0;
     PEXCEPTION_ROUTINE personalityRoutine = NULL;
 
     // Lookup the function entry for the IP
@@ -7932,7 +7994,6 @@ bool IsIPInEpilog(PTR_CONTEXT pContextToCheck, EECodeInfo *pCodeInfo, BOOL *pSaf
     _ASSERTE(funcEntry != NULL);
 
     imageBase = pCodeInfo->GetModuleBase();
-    pUnwindInfo = (PUNWIND_INFO)(imageBase+ funcEntry->UnwindData);
 
     ZeroMemory(&tempContext, sizeof(CONTEXT));
     CopyOSContext(&tempContext, pContextToCheck);
@@ -7955,13 +8016,15 @@ bool IsIPInEpilog(PTR_CONTEXT pContextToCheck, EECodeInfo *pCodeInfo, BOOL *pSaf
         // We are in epilog. 
         fIsInEpilog = true;
 
+#ifdef _TARGET_AMD64_
         // Check if context pointers has returned the address of the stack location in the hijacked function
         // from where RBP was restored. If the address is NULL, then it implies that RBP has been popped off.
         // Since JIT64 ensures that pop of RBP is the last instruction before ret/jmp, it implies its not safe
         // to inject an abort @ this point as EstablisherFrame (which will be based
         // of RBP for managed code since that is the FramePointer register, as indicated in the UnwindInfo)
         // will be off and can result in bad managed exception dispatch.
-        if (ctxPtrs.Rbp == NULL) 
+        if (ctxPtrs.Rbp == NULL)
+#endif
         {
             *pSafeToInjectThreadAbort = FALSE;
         }
@@ -7970,7 +8033,7 @@ bool IsIPInEpilog(PTR_CONTEXT pContextToCheck, EECodeInfo *pCodeInfo, BOOL *pSaf
     return fIsInEpilog;
 }
 
-#endif // defined(_TARGET_AMD64_) && defined(FEATURE_HIJACK)
+#endif // FEATURE_HIJACK && (!_TARGET_X86_ || FEATURE_PAL)
 
 #define EXCEPTION_VISUALCPP_DEBUGGER        ((DWORD) (1<<30 | 0x6D<<16 | 5000))
 
@@ -8151,6 +8214,24 @@ LONG WINAPI CLRVectoredExceptionHandlerShim(PEXCEPTION_POINTERS pExceptionInfo)
     // this thread will bypass all our locks.
     Thread *pThread = GetThread();
 
+    if (pThread)
+    {
+        // Fiber-friendly Vectored Exception Handling:
+        // Check if the current and the cached stack-base match.
+        // If they don't match then probably the thread is running on a different Fiber
+        // than during the initialization of the Thread-object.
+        void* stopPoint = pThread->GetCachedStackBase();
+        void* currentStackBase = Thread::GetStackUpperBound();
+        if (currentStackBase != stopPoint)
+        {
+            CantAllocHolder caHolder;
+            STRESS_LOG2(LF_EH, LL_INFO100, "In CLRVectoredExceptionHandler: mismatch of cached and current stack-base indicating use of Fibers, return with EXCEPTION_CONTINUE_SEARCH: current = %p; cache = %p\n",
+                currentStackBase, stopPoint);
+            return EXCEPTION_CONTINUE_SEARCH;
+        }
+    }
+    
+    
     // Also check if the exception was in the EE or not
     BOOL fExceptionInEE = FALSE;
     if (!pThread)

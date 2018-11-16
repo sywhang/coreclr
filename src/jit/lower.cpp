@@ -336,15 +336,15 @@ GenTree* Lowering::LowerNode(GenTree* node)
             break;
 #endif
 
-#ifndef _TARGET_ARM_
-        // TODO-ARM-CQ: We should contain this as long as the offset fits.
+#ifndef _TARGET_ARMARCH_
+        // TODO-ARMARCH-CQ: We should contain this as long as the offset fits.
         case GT_OBJ:
             if (node->AsObj()->Addr()->OperIsLocalAddr())
             {
                 node->AsObj()->Addr()->SetContained();
             }
             break;
-#endif // !_TARGET_ARM_
+#endif // !_TARGET_ARMARCH_
 
         default:
             break;
@@ -1078,7 +1078,12 @@ GenTree* Lowering::NewPutArg(GenTreeCall* call, GenTree* arg, fgArgTabEntry* inf
             // Set type of registers
             for (unsigned index = 0; index < info->numRegs; index++)
             {
-                var_types regType          = comp->getJitGCType(gcLayout[index]);
+                var_types regType = comp->getJitGCType(gcLayout[index]);
+                // Account for the possibility that float fields may be passed in integer registers.
+                if (varTypeIsFloating(regType) && !genIsValidFloatReg(argSplit->GetRegNumByIdx(index)))
+                {
+                    regType = (regType == TYP_FLOAT) ? TYP_INT : TYP_LONG;
+                }
                 argSplit->m_regType[index] = regType;
             }
         }
@@ -1087,7 +1092,12 @@ GenTree* Lowering::NewPutArg(GenTreeCall* call, GenTree* arg, fgArgTabEntry* inf
             GenTreeFieldList* fieldListPtr = arg->AsFieldList();
             for (unsigned index = 0; index < info->numRegs; fieldListPtr = fieldListPtr->Rest(), index++)
             {
-                var_types regType          = fieldListPtr->gtGetOp1()->TypeGet();
+                var_types regType = fieldListPtr->gtGetOp1()->TypeGet();
+                // Account for the possibility that float fields may be passed in integer registers.
+                if (varTypeIsFloating(regType) && !genIsValidFloatReg(argSplit->GetRegNumByIdx(index)))
+                {
+                    regType = (regType == TYP_FLOAT) ? TYP_INT : TYP_LONG;
+                }
                 argSplit->m_regType[index] = regType;
 
                 // Clear the register assignments on the fieldList nodes, as these are contained.
@@ -1562,7 +1572,7 @@ void Lowering::LowerCall(GenTree* node)
     LowerArgsForCall(call);
 
     // note that everything generated from this point on runs AFTER the outgoing args are placed
-    GenTree* result = nullptr;
+    GenTree* controlExpr = nullptr;
 
     // for x86, this is where we record ESP for checking later to make sure stack is balanced
 
@@ -1571,7 +1581,7 @@ void Lowering::LowerCall(GenTree* node)
     // an indirect call.
     if (call->IsDelegateInvoke())
     {
-        result = LowerDelegateInvoke(call);
+        controlExpr = LowerDelegateInvoke(call);
     }
     else
     {
@@ -1579,26 +1589,26 @@ void Lowering::LowerCall(GenTree* node)
         switch (call->gtFlags & GTF_CALL_VIRT_KIND_MASK)
         {
             case GTF_CALL_VIRT_STUB:
-                result = LowerVirtualStubCall(call);
+                controlExpr = LowerVirtualStubCall(call);
                 break;
 
             case GTF_CALL_VIRT_VTABLE:
                 // stub dispatching is off or this is not a virtual call (could be a tailcall)
-                result = LowerVirtualVtableCall(call);
+                controlExpr = LowerVirtualVtableCall(call);
                 break;
 
             case GTF_CALL_NONVIRT:
                 if (call->IsUnmanaged())
                 {
-                    result = LowerNonvirtPinvokeCall(call);
+                    controlExpr = LowerNonvirtPinvokeCall(call);
                 }
                 else if (call->gtCallType == CT_INDIRECT)
                 {
-                    result = LowerIndirectNonvirtCall(call);
+                    controlExpr = LowerIndirectNonvirtCall(call);
                 }
                 else
                 {
-                    result = LowerDirectCall(call);
+                    controlExpr = LowerDirectCall(call);
                 }
                 break;
 
@@ -1611,26 +1621,22 @@ void Lowering::LowerCall(GenTree* node)
     if (call->IsTailCallViaHelper())
     {
         // Either controlExpr or gtCallAddr must contain real call target.
-        if (result == nullptr)
+        if (controlExpr == nullptr)
         {
             assert(call->gtCallType == CT_INDIRECT);
             assert(call->gtCallAddr != nullptr);
-            result = call->gtCallAddr;
+            controlExpr = call->gtCallAddr;
         }
 
-        result = LowerTailCallViaHelper(call, result);
-    }
-    else if (call->IsFastTailCall())
-    {
-        LowerFastTailCall(call);
+        controlExpr = LowerTailCallViaHelper(call, controlExpr);
     }
 
-    if (result != nullptr)
+    if (controlExpr != nullptr)
     {
-        LIR::Range resultRange = LIR::SeqTree(comp, result);
+        LIR::Range controlExprRange = LIR::SeqTree(comp, controlExpr);
 
         JITDUMP("results of lowering call:\n");
-        DISPRANGE(resultRange);
+        DISPRANGE(controlExprRange);
 
         GenTree* insertionPoint = call;
         if (!call->IsTailCallViaHelper())
@@ -1661,10 +1667,21 @@ void Lowering::LowerCall(GenTree* node)
             }
         }
 
-        ContainCheckRange(resultRange);
-        BlockRange().InsertBefore(insertionPoint, std::move(resultRange));
+        ContainCheckRange(controlExprRange);
+        BlockRange().InsertBefore(insertionPoint, std::move(controlExprRange));
 
-        call->gtControlExpr = result;
+        call->gtControlExpr = controlExpr;
+    }
+    if (call->IsFastTailCall())
+    {
+        // Lower fast tail call can introduce new temps to set up args correctly for Callee.
+        // This involves patching LCL_VAR and LCL_VAR_ADDR nodes holding Caller stack args
+        // and replacing them with a new temp. Control expr also can contain nodes that need
+        // to be patched.
+        // Therefore lower fast tail call must be done after controlExpr is inserted into LIR.
+        // There is one side effect which is flipping the order of PME and control expression
+        // since LowerFastTailCall calls InsertPInvokeMethodEpilog.
+        LowerFastTailCall(call);
     }
 
     if (comp->opts.IsJit64Compat())
@@ -4358,7 +4375,6 @@ GenTree* Lowering::TryCreateAddrMode(LIR::Use&& use, bool isIndir)
     {
         index->ClearContained();
     }
-    addrMode->gtRsvdRegs = addr->gtRsvdRegs;
     addrMode->gtFlags |= (addr->gtFlags & GTF_IND_FLAGS);
     addrMode->gtFlags &= ~GTF_ALL_EFFECT; // LEAs are side-effect-free.
 
@@ -4874,7 +4890,6 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTree* node)
 
         newDivMod = comp->gtNewOperNode(GT_SUB, type, comp->gtNewLclvNode(dividendLclNum, type),
                                         comp->gtNewOperNode(GT_AND, type, adjustedDividend, divisor));
-        ContainCheckBinary(newDivMod->AsOp());
     }
 
     // Remove the divisor and dividend nodes from the linear order,
@@ -5519,121 +5534,6 @@ bool Lowering::NodesAreEquivalentLeaves(GenTree* tree1, GenTree* tree2)
     }
 }
 
-/**
- * Get common information required to handle a cast instruction
- */
-void Lowering::getCastDescription(GenTree* treeNode, CastInfo* castInfo)
-{
-    // Intialize castInfo
-    memset(castInfo, 0, sizeof(*castInfo));
-
-    GenTree* castOp = treeNode->gtCast.CastOp();
-
-    var_types dstType = treeNode->CastToType();
-    var_types srcType = genActualType(castOp->TypeGet());
-
-    castInfo->unsignedDest   = varTypeIsUnsigned(dstType);
-    castInfo->unsignedSource = varTypeIsUnsigned(srcType);
-
-    // If necessary, force the srcType to unsigned when the GT_UNSIGNED flag is set.
-    if (!castInfo->unsignedSource && (treeNode->gtFlags & GTF_UNSIGNED) != 0)
-    {
-        srcType                  = genUnsignedType(srcType);
-        castInfo->unsignedSource = true;
-    }
-
-    if (treeNode->gtOverflow() &&
-        (genTypeSize(srcType) >= genTypeSize(dstType) || (srcType == TYP_INT && dstType == TYP_ULONG)))
-    {
-        castInfo->requiresOverflowCheck = true;
-    }
-
-    if (castInfo->requiresOverflowCheck)
-    {
-        ssize_t typeMin       = 0;
-        ssize_t typeMax       = 0;
-        ssize_t typeMask      = 0;
-        bool    signCheckOnly = false;
-
-        // Do we need to compare the value, or just check masks
-        switch (dstType)
-        {
-            default:
-                assert(!"unreachable: getCastDescription");
-                break;
-
-            case TYP_BYTE:
-                typeMask = ssize_t((int)0xFFFFFF80);
-                typeMin  = SCHAR_MIN;
-                typeMax  = SCHAR_MAX;
-                break;
-
-            case TYP_UBYTE:
-                typeMask = ssize_t((int)0xFFFFFF00L);
-                break;
-
-            case TYP_SHORT:
-                typeMask = ssize_t((int)0xFFFF8000);
-                typeMin  = SHRT_MIN;
-                typeMax  = SHRT_MAX;
-                break;
-
-            case TYP_USHORT:
-                typeMask = ssize_t((int)0xFFFF0000L);
-                break;
-
-            case TYP_INT:
-                if (srcType == TYP_UINT)
-                {
-                    signCheckOnly = true;
-                }
-                else
-                {
-#ifdef _TARGET_64BIT_
-                    typeMask = 0xFFFFFFFF80000000LL;
-#else
-                    typeMask = 0x80000000;
-#endif
-                    typeMin = INT_MIN;
-                    typeMax = INT_MAX;
-                }
-                break;
-
-            case TYP_UINT:
-                if (srcType == TYP_INT)
-                {
-                    signCheckOnly = true;
-                }
-                else
-                {
-#ifdef _TARGET_64BIT_
-                    typeMask = 0xFFFFFFFF00000000LL;
-#else
-                    typeMask = 0x00000000;
-#endif
-                }
-                break;
-
-            case TYP_LONG:
-                signCheckOnly = true;
-                break;
-
-            case TYP_ULONG:
-                signCheckOnly = true;
-                break;
-        }
-
-        if (signCheckOnly)
-        {
-            castInfo->signCheckOnly = true;
-        }
-
-        castInfo->typeMax  = typeMax;
-        castInfo->typeMin  = typeMin;
-        castInfo->typeMask = typeMask;
-    }
-}
-
 //------------------------------------------------------------------------
 // Containment Analysis
 //------------------------------------------------------------------------
@@ -5744,61 +5644,6 @@ void Lowering::ContainCheckNode(GenTree* node)
         default:
             break;
     }
-}
-
-//------------------------------------------------------------------------
-// ContainCheckDivOrMod: determine which operands of a div/mod should be contained.
-//
-// Arguments:
-//    node - pointer to the GT_UDIV/GT_UMOD node
-//
-void Lowering::ContainCheckDivOrMod(GenTreeOp* node)
-{
-    assert(node->OperIs(GT_DIV, GT_MOD, GT_UDIV, GT_UMOD));
-
-#ifdef _TARGET_XARCH_
-    GenTree* dividend = node->gtGetOp1();
-    GenTree* divisor  = node->gtGetOp2();
-
-    if (varTypeIsFloating(node->TypeGet()))
-    {
-        // No implicit conversions at this stage as the expectation is that
-        // everything is made explicit by adding casts.
-        assert(dividend->TypeGet() == divisor->TypeGet());
-
-        if (IsContainableMemoryOp(divisor) || divisor->IsCnsNonZeroFltOrDbl())
-        {
-            MakeSrcContained(node, divisor);
-        }
-        else
-        {
-            // If there are no containable operands, we can make an operand reg optional.
-            // SSE2 allows only divisor to be a memory-op.
-            divisor->SetRegOptional();
-        }
-        return;
-    }
-    bool divisorCanBeRegOptional = true;
-#ifdef _TARGET_X86_
-    if (dividend->OperGet() == GT_LONG)
-    {
-        divisorCanBeRegOptional = false;
-        MakeSrcContained(node, dividend);
-    }
-#endif
-
-    // divisor can be an r/m, but the memory indirection must be of the same size as the divide
-    if (IsContainableMemoryOp(divisor) && (divisor->TypeGet() == node->TypeGet()))
-    {
-        MakeSrcContained(node, divisor);
-    }
-    else if (divisorCanBeRegOptional)
-    {
-        // If there are no containable operands, we can make an operand reg optional.
-        // Div instruction allows only divisor to be a memory op.
-        divisor->SetRegOptional();
-    }
-#endif // _TARGET_XARCH_
 }
 
 //------------------------------------------------------------------------

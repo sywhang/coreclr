@@ -1528,7 +1528,7 @@ extern "C" PCODE STDCALL PreStubWorker(TransitionBlock * pTransitionBlock, Metho
 
         if (curobj != NULL) // Check for virtual function called non-virtually on a NULL object
         {
-            pDispatchingMT = curobj->GetTrueMethodTable();
+            pDispatchingMT = curobj->GetMethodTable();
 
 #ifdef FEATURE_ICASTABLE
             if (pDispatchingMT->IsICastable())
@@ -1730,35 +1730,22 @@ PCODE MethodDesc::DoPrestub(MethodTable *pDispatchingMT)
         pThread->HandleThreadAbort();
     }
 
-    /**************************   CLASS CONSTRUCTOR   ********************/
-    // Make sure .cctor has been run
-
-    if (IsClassConstructorTriggeredViaPrestub())
-    {
-        pMT->CheckRunClassInitThrowing();
-    }
-
-
     /***************************   CALL COUNTER    ***********************/
     // If we are counting calls for tiered compilation, leave the prestub
     // in place so that we can continue intercepting method invocations.
     // When the TieredCompilationManager has received enough call notifications
     // for this method only then do we back-patch it.
     BOOL fCanBackpatchPrestub = TRUE;
-    BOOL fEligibleForCallCounting = FALSE;
 #ifdef FEATURE_TIERED_COMPILATION
+    BOOL fNeedsCallCounting = FALSE;
     TieredCompilationManager* pTieredCompilationManager = nullptr;
-    BOOL fEligibleForTieredCompilation = IsEligibleForTieredCompilation();
-    BOOL fWasPromotedToTier1 = FALSE;
-    if (fEligibleForTieredCompilation)
+    if (IsEligibleForTieredCompilation() && TieredCompilationManager::RequiresCallCounting(this))
     {
-        fEligibleForCallCounting = g_pConfig->TieredCompilation_CallCounting();
-        if (fEligibleForCallCounting)
-        {
-            pTieredCompilationManager = GetAppDomain()->GetTieredCompilationManager();
-            CallCounter * pCallCounter = GetCallCounter();
-            pCallCounter->OnMethodCalled(this, pTieredCompilationManager, &fCanBackpatchPrestub, &fWasPromotedToTier1);
-        }
+        pTieredCompilationManager = GetAppDomain()->GetTieredCompilationManager();
+        CallCounter * pCallCounter = GetCallCounter();
+        BOOL fWasPromotedToTier1 = FALSE;
+        pCallCounter->OnMethodCalled(this, pTieredCompilationManager, &fCanBackpatchPrestub, &fWasPromotedToTier1);
+        fNeedsCallCounting = !fWasPromotedToTier1;
     }
 #endif
 
@@ -1771,10 +1758,12 @@ PCODE MethodDesc::DoPrestub(MethodTable *pDispatchingMT)
     {
         pCode = GetCodeVersionManager()->PublishVersionableCodeIfNecessary(this, fCanBackpatchPrestub);
 
-        if (pTieredCompilationManager != nullptr && fEligibleForCallCounting && fCanBackpatchPrestub && pCode != NULL && !fWasPromotedToTier1)
+#ifdef FEATURE_TIERED_COMPILATION
+        if (pTieredCompilationManager != nullptr && fNeedsCallCounting && fCanBackpatchPrestub && pCode != NULL)
         {
             pTieredCompilationManager->OnMethodCallCountingStoppedWithoutTier1Promotion(this);
         }
+#endif
 
         fIsPointingToPrestub = IsPointingToPrestub();
     }
@@ -1994,11 +1983,7 @@ static PCODE PatchNonVirtualExternalMethod(MethodDesc * pMD, PCODE pCode, PTR_CO
     //
 #ifdef HAS_FIXUP_PRECODE
     if (pMD->HasPrecode() && pMD->GetPrecode()->GetType() == PRECODE_FIXUP
-        && pMD->IsNativeCodeStableAfterInit()
-#ifndef HAS_REMOTING_PRECODE
-        && !pMD->IsRemotingInterceptedViaPrestub()
-#endif
-        )
+        && pMD->IsNativeCodeStableAfterInit())
     {
         PCODE pDirectTarget = pMD->IsFCall() ? ECall::GetFCallImpl(pMD) : pMD->GetNativeCode();
         if (pDirectTarget != NULL)
@@ -2301,20 +2286,24 @@ EXTERN_C PCODE STDCALL ExternalMethodFixupWorker(TransitionBlock * pTransitionBl
             // Get the stub manager for this module
             VirtualCallStubManager *pMgr = pModule->GetLoaderAllocator()->GetVirtualCallStubManager();
 
-            DispatchToken token;
-            if (pMT->IsInterface())
-                token = pMT->GetLoaderAllocator()->GetDispatchToken(pMT->GetTypeID(), slot);
-            else
-                token = DispatchToken::CreateDispatchToken(slot);
-
             OBJECTREF *protectedObj = pEMFrame->GetThisPtr();
             _ASSERTE(protectedObj != NULL);
             if (*protectedObj == NULL) {
                 COMPlusThrow(kNullReferenceException);
             }
-            
-            StubCallSite callSite(pIndirection, pEMFrame->GetReturnAddress());
-            pCode = pMgr->ResolveWorker(&callSite, protectedObj, token, VirtualCallStubManager::SK_LOOKUP);
+
+            DispatchToken token;
+            if (pMT->IsInterface() || MethodTable::VTableIndir_t::isRelative)
+            {
+                token = pMT->GetLoaderAllocator()->GetDispatchToken(pMT->GetTypeID(), slot);
+                StubCallSite callSite(pIndirection, pEMFrame->GetReturnAddress());
+                pCode = pMgr->ResolveWorker(&callSite, protectedObj, token, VirtualCallStubManager::SK_LOOKUP);
+            }
+            else
+            {
+                pCode = pMgr->GetVTableCallStub(slot);
+                *EnsureWritableExecutablePages((TADDR *)pIndirection) = pCode;
+            }
             _ASSERTE(pCode != NULL);
         }
         else
@@ -2382,7 +2371,7 @@ EXTERN_C PCODE VirtualMethodFixupWorker(Object * pThisPtr,  CORCOMPILE_VIRTUAL_I
     _ASSERTE(pThisPtr != NULL);
     VALIDATEOBJECT(pThisPtr);
 
-    MethodTable * pMT = pThisPtr->GetTrueMethodTable();
+    MethodTable * pMT = pThisPtr->GetMethodTable();
 
     WORD slotNumber = pThunk->slotNum;
     _ASSERTE(slotNumber != (WORD)-1);
@@ -2887,7 +2876,7 @@ PCODE DynamicHelperFixup(TransitionBlock * pTransitionBlock, TADDR * pCell, DWOR
                     {
                         if (pFD != NULL)
                         {
-                            if (pFD->IsRVA() || pFD->IsContextStatic())
+                            if (pFD->IsRVA())
                             {
                                 _ASSERTE(!"Fast getter for rare kinds of static fields");
                             }

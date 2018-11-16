@@ -39,30 +39,27 @@ namespace System.Text
         internal static readonly UTF32Encoding s_default = new UTF32Encoding(bigEndian: false, byteOrderMark: true);
         internal static readonly UTF32Encoding s_bigEndianDefault = new UTF32Encoding(bigEndian: true, byteOrderMark: true);
 
-        private static readonly byte[] s_bigEndianPreamble = new byte[4] { 0x00, 0x00, 0xFE, 0xFF };
-        private static readonly byte[] s_littleEndianPreamble = new byte[4] { 0xFF, 0xFE, 0x00, 0x00 };
-
-        private bool _emitUTF32ByteOrderMark = false;
-        private bool _isThrowException = false;
-        private bool _bigEndian = false;
+        private readonly bool _emitUTF32ByteOrderMark = false;
+        private readonly bool _isThrowException = false;
+        private readonly bool _bigEndian = false;
 
 
-        public UTF32Encoding() : this(false, true, false)
+        public UTF32Encoding() : this(false, true)
         {
         }
 
 
         public UTF32Encoding(bool bigEndian, bool byteOrderMark) :
-            this(bigEndian, byteOrderMark, false)
-        {
-        }
-
-
-        public UTF32Encoding(bool bigEndian, bool byteOrderMark, bool throwOnInvalidCharacters) :
             base(bigEndian ? 12001 : 12000)
         {
             _bigEndian = bigEndian;
             _emitUTF32ByteOrderMark = byteOrderMark;
+        }
+
+
+        public UTF32Encoding(bool bigEndian, bool byteOrderMark, bool throwOnInvalidCharacters) :
+            this(bigEndian, byteOrderMark)
+        {
             _isThrowException = throwOnInvalidCharacters;
 
             // Encoding constructor already did this, but it'll be wrong if we're throwing exceptions
@@ -1155,9 +1152,10 @@ namespace System.Text
         }
 
         public override ReadOnlySpan<byte> Preamble =>
-            GetType() != typeof(UTF32Encoding) ? GetPreamble() : // in case a derived UTF32Encoding overrode GetPreamble
-            _emitUTF32ByteOrderMark ? (_bigEndian ? s_bigEndianPreamble : s_littleEndianPreamble) :
-            Array.Empty<byte>();
+            GetType() != typeof(UTF32Encoding) ? new ReadOnlySpan<byte>(GetPreamble()) : // in case a derived UTF32Encoding overrode GetPreamble
+            !_emitUTF32ByteOrderMark ? default :
+            _bigEndian ? (ReadOnlySpan<byte>)new byte[4] { 0x00, 0x00, 0xFE, 0xFF } : // uses C# compiler's optimization for static byte[] data
+            (ReadOnlySpan<byte>)new byte[4] { 0xFF, 0xFE, 0x00, 0x00 };      
 
         public override bool Equals(object value)
         {

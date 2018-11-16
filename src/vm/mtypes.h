@@ -42,9 +42,9 @@ DEFINE_MARSHALER_TYPE(MARSHAL_TYPE_DATE,            DateMarshaler,              
 DEFINE_MARSHALER_TYPE(MARSHAL_TYPE_LPWSTR,          WSTRMarshaler,                       false)
 DEFINE_MARSHALER_TYPE(MARSHAL_TYPE_LPSTR,           CSTRMarshaler,                       false)
 DEFINE_MARSHALER_TYPE(MARSHAL_TYPE_LPUTF8STR,       CUTF8Marshaler,                      false)
-#ifdef FEATURE_COMINTEROP
 DEFINE_MARSHALER_TYPE(MARSHAL_TYPE_BSTR,            BSTRMarshaler,                       false)
 DEFINE_MARSHALER_TYPE(MARSHAL_TYPE_ANSIBSTR,        AnsiBSTRMarshaler,                   false)
+#ifdef FEATURE_COMINTEROP
 DEFINE_MARSHALER_TYPE(MARSHAL_TYPE_HSTRING,         HSTRINGMarshaler,                    true)
 DEFINE_MARSHALER_TYPE(MARSHAL_TYPE_DATETIME,        DateTimeMarshaler,                   true)
 DEFINE_MARSHALER_TYPE(MARSHAL_TYPE_URI,             UriMarshaler,                        true)
