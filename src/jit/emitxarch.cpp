@@ -50,6 +50,38 @@ bool IsFMAInstruction(instruction ins)
     return (ins >= INS_FIRST_FMA_INSTRUCTION) && (ins <= INS_LAST_FMA_INSTRUCTION);
 }
 
+bool IsBMIInstruction(instruction ins)
+{
+    return (ins >= INS_FIRST_BMI_INSTRUCTION) && (ins <= INS_LAST_BMI_INSTRUCTION);
+}
+
+regNumber getBmiRegNumber(instruction ins)
+{
+    switch (ins)
+    {
+        case INS_blsi:
+        {
+            return (regNumber)3;
+        }
+
+        case INS_blsmsk:
+        {
+            return (regNumber)2;
+        }
+
+        case INS_blsr:
+        {
+            return (regNumber)1;
+        }
+
+        default:
+        {
+            assert(IsBMIInstruction(ins));
+            return REG_NA;
+        }
+    }
+}
+
 regNumber getSseShiftRegNumber(instruction ins)
 {
     switch (ins)
@@ -105,235 +137,7 @@ bool emitter::IsAVXInstruction(instruction ins)
 // to indicate whether a 3-operand instruction.
 bool emitter::IsDstDstSrcAVXInstruction(instruction ins)
 {
-    switch (ins)
-    {
-        case INS_addpd:
-        case INS_addps:
-        case INS_addsd:
-        case INS_addss:
-        case INS_addsubpd:
-        case INS_addsubps:
-        case INS_andnpd:
-        case INS_andnps:
-        case INS_andpd:
-        case INS_andps:
-        case INS_blendpd:
-        case INS_blendps:
-        case INS_cmppd:
-        case INS_cmpps:
-        case INS_cmpsd:
-        case INS_cmpss:
-        case INS_cvtsi2sd:
-        case INS_cvtsi2ss:
-        case INS_cvtsd2ss:
-        case INS_cvtss2sd:
-        case INS_divpd:
-        case INS_divps:
-        case INS_divsd:
-        case INS_divss:
-        case INS_dppd:
-        case INS_dpps:
-        case INS_haddpd:
-        case INS_haddps:
-        case INS_hsubpd:
-        case INS_hsubps:
-        case INS_insertps:
-        case INS_maxpd:
-        case INS_maxps:
-        case INS_maxsd:
-        case INS_maxss:
-        case INS_minpd:
-        case INS_minps:
-        case INS_minsd:
-        case INS_minss:
-        case INS_movhlps:
-        case INS_movlhps:
-        case INS_mpsadbw:
-        case INS_mulpd:
-        case INS_mulps:
-        case INS_mulsd:
-        case INS_mulss:
-        case INS_orpd:
-        case INS_orps:
-        case INS_packssdw:
-        case INS_packsswb:
-        case INS_packusdw:
-        case INS_packuswb:
-        case INS_paddb:
-        case INS_paddd:
-        case INS_paddq:
-        case INS_paddsb:
-        case INS_paddsw:
-        case INS_paddusb:
-        case INS_paddusw:
-        case INS_paddw:
-        case INS_palignr:
-        case INS_pand:
-        case INS_pandn:
-        case INS_pavgb:
-        case INS_pavgw:
-        case INS_pblendw:
-        case INS_pcmpeqb:
-        case INS_pcmpeqd:
-        case INS_pcmpeqq:
-        case INS_pcmpeqw:
-        case INS_pcmpgtb:
-        case INS_pcmpgtd:
-        case INS_pcmpgtq:
-        case INS_pcmpgtw:
-        case INS_phaddd:
-        case INS_phaddsw:
-        case INS_phaddw:
-        case INS_phsubd:
-        case INS_phsubsw:
-        case INS_phsubw:
-        case INS_pinsrb:
-        case INS_pinsrw:
-        case INS_pinsrd:
-        case INS_pinsrq:
-        case INS_pmaddubsw:
-        case INS_pmaddwd:
-        case INS_pmaxsb:
-        case INS_pmaxsd:
-        case INS_pmaxsw:
-        case INS_pmaxub:
-        case INS_pmaxud:
-        case INS_pmaxuw:
-        case INS_pminsb:
-        case INS_pminsd:
-        case INS_pminsw:
-        case INS_pminub:
-        case INS_pminud:
-        case INS_pminuw:
-        case INS_pmuldq:
-        case INS_pmulhrsw:
-        case INS_pmulhuw:
-        case INS_pmulhw:
-        case INS_pmulld:
-        case INS_pmullw:
-        case INS_pmuludq:
-        case INS_por:
-        case INS_psadbw:
-        case INS_pshufb:
-        case INS_psignb:
-        case INS_psignd:
-        case INS_psignw:
-        case INS_psubb:
-        case INS_psubd:
-        case INS_psubq:
-        case INS_psubsb:
-        case INS_psubsw:
-        case INS_psubusb:
-        case INS_psubusw:
-        case INS_psubw:
-        case INS_pslld:
-        case INS_pslldq:
-        case INS_psllq:
-        case INS_psllw:
-        case INS_psrld:
-        case INS_psrldq:
-        case INS_psrlq:
-        case INS_psrlw:
-        case INS_psrad:
-        case INS_psraw:
-        case INS_punpckhbw:
-        case INS_punpckhdq:
-        case INS_punpckhqdq:
-        case INS_punpckhwd:
-        case INS_punpcklbw:
-        case INS_punpckldq:
-        case INS_punpcklqdq:
-        case INS_punpcklwd:
-        case INS_pxor:
-        case INS_shufpd:
-        case INS_shufps:
-        case INS_subpd:
-        case INS_subps:
-        case INS_subsd:
-        case INS_subss:
-        case INS_unpckhps:
-        case INS_unpcklps:
-        case INS_unpckhpd:
-        case INS_unpcklpd:
-        case INS_vfmadd132pd:
-        case INS_vfmadd213pd:
-        case INS_vfmadd231pd:
-        case INS_vfmadd132ps:
-        case INS_vfmadd213ps:
-        case INS_vfmadd231ps:
-        case INS_vfmadd132sd:
-        case INS_vfmadd213sd:
-        case INS_vfmadd231sd:
-        case INS_vfmadd132ss:
-        case INS_vfmadd213ss:
-        case INS_vfmadd231ss:
-        case INS_vfmaddsub132pd:
-        case INS_vfmaddsub213pd:
-        case INS_vfmaddsub231pd:
-        case INS_vfmaddsub132ps:
-        case INS_vfmaddsub213ps:
-        case INS_vfmaddsub231ps:
-        case INS_vfmsubadd132pd:
-        case INS_vfmsubadd213pd:
-        case INS_vfmsubadd231pd:
-        case INS_vfmsubadd132ps:
-        case INS_vfmsubadd213ps:
-        case INS_vfmsubadd231ps:
-        case INS_vfmsub132pd:
-        case INS_vfmsub213pd:
-        case INS_vfmsub231pd:
-        case INS_vfmsub132ps:
-        case INS_vfmsub213ps:
-        case INS_vfmsub231ps:
-        case INS_vfmsub132sd:
-        case INS_vfmsub213sd:
-        case INS_vfmsub231sd:
-        case INS_vfmsub132ss:
-        case INS_vfmsub213ss:
-        case INS_vfmsub231ss:
-        case INS_vfnmadd132pd:
-        case INS_vfnmadd213pd:
-        case INS_vfnmadd231pd:
-        case INS_vfnmadd132ps:
-        case INS_vfnmadd213ps:
-        case INS_vfnmadd231ps:
-        case INS_vfnmadd132sd:
-        case INS_vfnmadd213sd:
-        case INS_vfnmadd231sd:
-        case INS_vfnmadd132ss:
-        case INS_vfnmadd213ss:
-        case INS_vfnmadd231ss:
-        case INS_vfnmsub132pd:
-        case INS_vfnmsub213pd:
-        case INS_vfnmsub231pd:
-        case INS_vfnmsub132ps:
-        case INS_vfnmsub213ps:
-        case INS_vfnmsub231ps:
-        case INS_vfnmsub132sd:
-        case INS_vfnmsub213sd:
-        case INS_vfnmsub231sd:
-        case INS_vfnmsub132ss:
-        case INS_vfnmsub213ss:
-        case INS_vfnmsub231ss:
-        case INS_vinsertf128:
-        case INS_vinserti128:
-        case INS_vmaskmovps:
-        case INS_vmaskmovpd:
-        case INS_vperm2i128:
-        case INS_vperm2f128:
-        case INS_vpermilpsvar:
-        case INS_vpermilpdvar:
-        case INS_vpsrlvd:
-        case INS_vpsrlvq:
-        case INS_vpsravd:
-        case INS_vpsllvd:
-        case INS_vpsllvq:
-        case INS_xorpd:
-        case INS_xorps:
-            return IsAVXInstruction(ins);
-        default:
-            return false;
-    }
+    return ((CodeGenInterface::instInfo[ins] & INS_Flags_IsDstDstSrcAVXInstruction) != 0) && IsAVXInstruction(ins);
 }
 
 // Returns true if the AVX instruction requires 3 operands that duplicate the source
@@ -343,24 +147,7 @@ bool emitter::IsDstDstSrcAVXInstruction(instruction ins)
 // to indicate whether a 3-operand instruction.
 bool emitter::IsDstSrcSrcAVXInstruction(instruction ins)
 {
-    switch (ins)
-    {
-        case INS_movhpd:
-        case INS_movhps:
-        case INS_movlpd:
-        case INS_movlps:
-        case INS_movsdsse2:
-        case INS_movss:
-        case INS_rcpss:
-        case INS_roundsd:
-        case INS_roundss:
-        case INS_rsqrtss:
-        case INS_sqrtsd:
-        case INS_sqrtss:
-            return IsAVXInstruction(ins);
-        default:
-            return false;
-    }
+    return ((CodeGenInterface::instInfo[ins] & INS_Flags_IsDstSrcSrcAVXInstruction) != 0) && IsAVXInstruction(ins);
 }
 
 #ifdef FEATURE_HW_INTRINSICS
@@ -383,6 +170,7 @@ static bool IsDstSrcImmAvxInstruction(instruction ins)
 {
     switch (ins)
     {
+        case INS_aeskeygenassist:
         case INS_extractps:
         case INS_pextrb:
         case INS_pextrw:
@@ -509,6 +297,7 @@ bool TakesRexWPrefix(instruction ins, emitAttr attr)
     // and here we must special case these by the opcode.
     switch (ins)
     {
+        case INS_vpermpd:
         case INS_vpermq:
         case INS_vpsrlvq:
         case INS_vpsllvq:
@@ -544,6 +333,7 @@ bool TakesRexWPrefix(instruction ins, emitAttr attr)
         case INS_vfnmsub132sd:
         case INS_vfnmsub213sd:
         case INS_vfnmsub231sd:
+        case INS_vpmaskmovq:
             return true;
         default:
             break;
@@ -571,6 +361,10 @@ bool TakesRexWPrefix(instruction ins, emitAttr attr)
     {
         switch (ins)
         {
+            case INS_andn:
+            case INS_blsi:
+            case INS_blsmsk:
+            case INS_blsr:
             case INS_cvttsd2si:
             case INS_cvttss2si:
             case INS_cvtsd2si:
@@ -580,6 +374,8 @@ bool TakesRexWPrefix(instruction ins, emitAttr attr)
             case INS_mov_xmm2i:
             case INS_mov_i2xmm:
             case INS_movnti:
+            case INS_pdep:
+            case INS_pext:
                 return true;
             default:
                 return false;
@@ -799,7 +595,7 @@ unsigned emitter::emitOutputRexOrVexPrefixIfNeeded(instruction ins, BYTE* dst, c
             // 4-byte opcode: with the bytes ordered as 0x22114433
             // check for a prefix in the 11 position
             BYTE sizePrefix = (code >> 16) & 0xFF;
-            if (sizePrefix != 0 && isPrefix(sizePrefix))
+            if ((sizePrefix != 0) && isPrefix(sizePrefix))
             {
                 // 'pp' bits in byte2 of VEX prefix allows us to encode SIMD size prefixes as two bits
                 //
@@ -810,7 +606,33 @@ unsigned emitter::emitOutputRexOrVexPrefixIfNeeded(instruction ins, BYTE* dst, c
                 switch (sizePrefix)
                 {
                     case 0x66:
-                        vexPrefix |= 0x01;
+                        if (IsBMIInstruction(ins))
+                        {
+                            switch (ins)
+                            {
+                                case INS_pdep:
+                                {
+                                    vexPrefix |= 0x03;
+                                    break;
+                                }
+
+                                case INS_pext:
+                                {
+                                    vexPrefix |= 0x02;
+                                    break;
+                                }
+
+                                default:
+                                {
+                                    vexPrefix |= 0x00;
+                                    break;
+                                }
+                            }
+                        }
+                        else
+                        {
+                            vexPrefix |= 0x01;
+                        }
                         break;
                     case 0xF3:
                         vexPrefix |= 0x02;
@@ -1114,18 +936,15 @@ inline ssize_t emitter::emitGetInsCIdisp(instrDesc* id)
  *  The following table is used by the instIsFP()/instUse/DefFlags() helpers.
  */
 
-#define INST_DEF_FL 0x20 // does the instruction set flags?
-#define INST_USE_FL 0x40 // does the instruction use flags?
-
 // clang-format off
-const BYTE          CodeGenInterface::instInfo[] =
+const insFlags      CodeGenInterface::instInfo[] =
 {
-    #define INST0(id, nm, fp, um, rf, wf, mr                 ) (INST_USE_FL*rf|INST_DEF_FL*wf|INST_FP*fp),
-    #define INST1(id, nm, fp, um, rf, wf, mr                 ) (INST_USE_FL*rf|INST_DEF_FL*wf|INST_FP*fp),
-    #define INST2(id, nm, fp, um, rf, wf, mr, mi             ) (INST_USE_FL*rf|INST_DEF_FL*wf|INST_FP*fp),
-    #define INST3(id, nm, fp, um, rf, wf, mr, mi, rm         ) (INST_USE_FL*rf|INST_DEF_FL*wf|INST_FP*fp),
-    #define INST4(id, nm, fp, um, rf, wf, mr, mi, rm, a4     ) (INST_USE_FL*rf|INST_DEF_FL*wf|INST_FP*fp),
-    #define INST5(id, nm, fp, um, rf, wf, mr, mi, rm, a4, rr ) (INST_USE_FL*rf|INST_DEF_FL*wf|INST_FP*fp),
+    #define INST0(id, nm, um, mr,                 flags) static_cast<insFlags>(flags),
+    #define INST1(id, nm, um, mr,                 flags) static_cast<insFlags>(flags),
+    #define INST2(id, nm, um, mr, mi,             flags) static_cast<insFlags>(flags),
+    #define INST3(id, nm, um, mr, mi, rm,         flags) static_cast<insFlags>(flags),
+    #define INST4(id, nm, um, mr, mi, rm, a4,     flags) static_cast<insFlags>(flags),
+    #define INST5(id, nm, um, mr, mi, rm, a4, rr, flags) static_cast<insFlags>(flags),
     #include "instrs.h"
     #undef  INST0
     #undef  INST1
@@ -1144,12 +963,12 @@ const BYTE          CodeGenInterface::instInfo[] =
 // clang-format off
 const BYTE          emitter::emitInsModeFmtTab[] =
 {
-    #define INST0(id, nm, fp, um, rf, wf, mr                ) um,
-    #define INST1(id, nm, fp, um, rf, wf, mr                ) um,
-    #define INST2(id, nm, fp, um, rf, wf, mr, mi            ) um,
-    #define INST3(id, nm, fp, um, rf, wf, mr, mi, rm        ) um,
-    #define INST4(id, nm, fp, um, rf, wf, mr, mi, rm, a4    ) um,
-    #define INST5(id, nm, fp, um, rf, wf, mr, mi, rm, a4, rr) um,
+    #define INST0(id, nm, um, mr,                 flags) um,
+    #define INST1(id, nm, um, mr,                 flags) um,
+    #define INST2(id, nm, um, mr, mi,             flags) um,
+    #define INST3(id, nm, um, mr, mi, rm,         flags) um,
+    #define INST4(id, nm, um, mr, mi, rm, a4,     flags) um,
+    #define INST5(id, nm, um, mr, mi, rm, a4, rr, flags) um,
     #include "instrs.h"
     #undef  INST0
     #undef  INST1
@@ -1185,15 +1004,43 @@ bool emitter::emitInsCanOnlyWriteSSE2OrAVXReg(instrDesc* id)
 {
     instruction ins = id->idIns();
 
-    // The following SSE2 instructions write to a general purpose integer register.
-    if (!IsSSEOrAVXInstruction(ins) || ins == INS_mov_xmm2i || ins == INS_cvttsd2si || ins == INS_cvttss2si ||
-        ins == INS_cvtsd2si || ins == INS_cvtss2si || ins == INS_pmovmskb || ins == INS_pextrw || ins == INS_pextrb ||
-        ins == INS_pextrd || ins == INS_pextrq || ins == INS_extractps)
+    if (!IsSSEOrAVXInstruction(ins))
     {
         return false;
     }
 
-    return true;
+    switch (ins)
+    {
+        case INS_andn:
+        case INS_blsi:
+        case INS_blsmsk:
+        case INS_blsr:
+        case INS_cvttsd2si:
+        case INS_cvttss2si:
+        case INS_cvtsd2si:
+        case INS_cvtss2si:
+        case INS_extractps:
+        case INS_mov_xmm2i:
+        case INS_movmskpd:
+        case INS_movmskps:
+        case INS_pdep:
+        case INS_pext:
+        case INS_pmovmskb:
+        case INS_pextrb:
+        case INS_pextrd:
+        case INS_pextrq:
+        case INS_pextrw:
+        case INS_pextrw_sse41:
+        {
+            // These SSE instructions write to a general purpose integer register.
+            return false;
+        }
+
+        default:
+        {
+            return true;
+        }
+    }
 }
 
 /*****************************************************************************
@@ -1207,12 +1054,12 @@ inline size_t insCode(instruction ins)
     const static
     size_t          insCodes[] =
     {
-        #define INST0(id, nm, fp, um, rf, wf, mr                ) mr,
-        #define INST1(id, nm, fp, um, rf, wf, mr                ) mr,
-        #define INST2(id, nm, fp, um, rf, wf, mr, mi            ) mr,
-        #define INST3(id, nm, fp, um, rf, wf, mr, mi, rm        ) mr,
-        #define INST4(id, nm, fp, um, rf, wf, mr, mi, rm, a4    ) mr,
-        #define INST5(id, nm, fp, um, rf, wf, mr, mi, rm, a4, rr) mr,
+        #define INST0(id, nm, um, mr,                 flags) mr,
+        #define INST1(id, nm, um, mr,                 flags) mr,
+        #define INST2(id, nm, um, mr, mi,             flags) mr,
+        #define INST3(id, nm, um, mr, mi, rm,         flags) mr,
+        #define INST4(id, nm, um, mr, mi, rm, a4,     flags) mr,
+        #define INST5(id, nm, um, mr, mi, rm, a4, rr, flags) mr,
         #include "instrs.h"
         #undef  INST0
         #undef  INST1
@@ -1240,12 +1087,12 @@ inline size_t insCodeACC(instruction ins)
     const static
     size_t          insCodesACC[] =
     {
-        #define INST0(id, nm, fp, um, rf, wf, mr                )
-        #define INST1(id, nm, fp, um, rf, wf, mr                )
-        #define INST2(id, nm, fp, um, rf, wf, mr, mi            )
-        #define INST3(id, nm, fp, um, rf, wf, mr, mi, rm        )
-        #define INST4(id, nm, fp, um, rf, wf, mr, mi, rm, a4    ) a4,
-        #define INST5(id, nm, fp, um, rf, wf, mr, mi, rm, a4, rr) a4,
+        #define INST0(id, nm, um, mr,                 flags)
+        #define INST1(id, nm, um, mr,                 flags)
+        #define INST2(id, nm, um, mr, mi,             flags)
+        #define INST3(id, nm, um, mr, mi, rm,         flags)
+        #define INST4(id, nm, um, mr, mi, rm, a4,     flags) a4,
+        #define INST5(id, nm, um, mr, mi, rm, a4, rr, flags) a4,
         #include "instrs.h"
         #undef  INST0
         #undef  INST1
@@ -1273,12 +1120,12 @@ inline size_t insCodeRR(instruction ins)
     const static
     size_t          insCodesRR[] =
     {
-        #define INST0(id, nm, fp, um, rf, wf, mr                )
-        #define INST1(id, nm, fp, um, rf, wf, mr                )
-        #define INST2(id, nm, fp, um, rf, wf, mr, mi            )
-        #define INST3(id, nm, fp, um, rf, wf, mr, mi, rm        )
-        #define INST4(id, nm, fp, um, rf, wf, mr, mi, rm, a4    )
-        #define INST5(id, nm, fp, um, rf, wf, mr, mi, rm, a4, rr) rr,
+        #define INST0(id, nm, um, mr,                 flags)
+        #define INST1(id, nm, um, mr,                 flags)
+        #define INST2(id, nm, um, mr, mi,             flags)
+        #define INST3(id, nm, um, mr, mi, rm,         flags)
+        #define INST4(id, nm, um, mr, mi, rm, a4,     flags)
+        #define INST5(id, nm, um, mr, mi, rm, a4, rr, flags) rr,
         #include "instrs.h"
         #undef  INST0
         #undef  INST1
@@ -1299,12 +1146,12 @@ inline size_t insCodeRR(instruction ins)
 const static
 size_t          insCodesRM[] =
 {
-    #define INST0(id, nm, fp, um, rf, wf, mr                )
-    #define INST1(id, nm, fp, um, rf, wf, mr                )
-    #define INST2(id, nm, fp, um, rf, wf, mr, mi            )
-    #define INST3(id, nm, fp, um, rf, wf, mr, mi, rm        ) rm,
-    #define INST4(id, nm, fp, um, rf, wf, mr, mi, rm, a4    ) rm,
-    #define INST5(id, nm, fp, um, rf, wf, mr, mi, rm, a4, rr) rm,
+    #define INST0(id, nm, um, mr,                 flags)
+    #define INST1(id, nm, um, mr,                 flags)
+    #define INST2(id, nm, um, mr, mi,             flags)
+    #define INST3(id, nm, um, mr, mi, rm,         flags) rm,
+    #define INST4(id, nm, um, mr, mi, rm, a4,     flags) rm,
+    #define INST5(id, nm, um, mr, mi, rm, a4, rr, flags) rm,
     #include "instrs.h"
     #undef  INST0
     #undef  INST1
@@ -1339,12 +1186,12 @@ inline size_t insCodeRM(instruction ins)
 const static
 size_t          insCodesMI[] =
 {
-    #define INST0(id, nm, fp, um, rf, wf, mr                )
-    #define INST1(id, nm, fp, um, rf, wf, mr                )
-    #define INST2(id, nm, fp, um, rf, wf, mr, mi            ) mi,
-    #define INST3(id, nm, fp, um, rf, wf, mr, mi, rm        ) mi,
-    #define INST4(id, nm, fp, um, rf, wf, mr, mi, rm, a4    ) mi,
-    #define INST5(id, nm, fp, um, rf, wf, mr, mi, rm, a4, rr) mi,
+    #define INST0(id, nm, um, mr,                 flags)
+    #define INST1(id, nm, um, mr,                 flags)
+    #define INST2(id, nm, um, mr, mi,             flags) mi,
+    #define INST3(id, nm, um, mr, mi, rm,         flags) mi,
+    #define INST4(id, nm, um, mr, mi, rm, a4,     flags) mi,
+    #define INST5(id, nm, um, mr, mi, rm, a4, rr, flags) mi,
     #include "instrs.h"
     #undef  INST0
     #undef  INST1
@@ -1379,12 +1226,12 @@ inline size_t insCodeMI(instruction ins)
 const static
 size_t          insCodesMR[] =
 {
-    #define INST0(id, nm, fp, um, rf, wf, mr                )
-    #define INST1(id, nm, fp, um, rf, wf, mr                ) mr,
-    #define INST2(id, nm, fp, um, rf, wf, mr, mi            ) mr,
-    #define INST3(id, nm, fp, um, rf, wf, mr, mi, rm        ) mr,
-    #define INST4(id, nm, fp, um, rf, wf, mr, mi, rm, a4    ) mr,
-    #define INST5(id, nm, fp, um, rf, wf, mr, mi, rm, a4, rr) mr,
+    #define INST0(id, nm, um, mr,                 flags)
+    #define INST1(id, nm, um, mr,                 flags) mr,
+    #define INST2(id, nm, um, mr, mi,             flags) mr,
+    #define INST3(id, nm, um, mr, mi, rm,         flags) mr,
+    #define INST4(id, nm, um, mr, mi, rm, a4,     flags) mr,
+    #define INST5(id, nm, um, mr, mi, rm, a4, rr, flags) mr,
     #include "instrs.h"
     #undef  INST0
     #undef  INST1
@@ -3471,10 +3318,26 @@ void emitter::emitInsRMW(instruction ins, emitAttr attr, GenTreeStoreInd* storeI
     if (src->isContainedIntOrIImmed())
     {
         GenTreeIntConCommon* intConst = src->AsIntConCommon();
-        id                            = emitNewInstrAmdCns(attr, offset, (int)intConst->IconValue());
+        int                  iconVal  = (int)intConst->IconValue();
+        switch (ins)
+        {
+            case INS_rcl_N:
+            case INS_rcr_N:
+            case INS_rol_N:
+            case INS_ror_N:
+            case INS_shl_N:
+            case INS_shr_N:
+            case INS_sar_N:
+                iconVal &= 0x7F;
+                break;
+            default:
+                break;
+        }
+
+        id = emitNewInstrAmdCns(attr, offset, iconVal);
         emitHandleMemOp(storeInd, id, IF_ARW_CNS, ins);
         id->idIns(ins);
-        sz = emitInsSizeAM(id, insCodeMI(ins), (int)intConst->IconValue());
+        sz = emitInsSizeAM(id, insCodeMI(ins), iconVal);
     }
     else
     {
@@ -4046,6 +3909,42 @@ void emitter::emitIns_AR(instruction ins, emitAttr attr, regNumber base, int off
     emitCurIGsize += sz;
 }
 
+//------------------------------------------------------------------------
+// emitIns_AR_R_R: emits the code for an instruction that takes a base memory register, two register operands
+//                 and that does not return a value
+//
+// Arguments:
+//    ins       -- The instruction being emitted
+//    attr      -- The emit attribute
+//    targetReg -- The target register
+//    op2Reg    -- The register of the second operand
+//    op3Reg    -- The register of the third operand
+//    base      -- The base register used for the memory address (first operand)
+//    offs      -- The offset from base
+//
+void emitter::emitIns_AR_R_R(
+    instruction ins, emitAttr attr, regNumber op2Reg, regNumber op3Reg, regNumber base, int offs)
+{
+    assert(IsSSEOrAVXInstruction(ins));
+    assert(IsThreeOperandAVXInstruction(ins));
+
+    instrDesc* id = emitNewInstrAmd(attr, offs);
+
+    id->idIns(ins);
+    id->idReg1(op2Reg);
+    id->idReg2(op3Reg);
+
+    id->idInsFmt(IF_AWR_RRD_RRD);
+    id->idAddr()->iiaAddrMode.amBaseReg = base;
+    id->idAddr()->iiaAddrMode.amIndxReg = REG_NA;
+
+    UNATIVE_OFFSET sz = emitInsSizeAM(id, insCodeMR(ins));
+    id->idCodeSize(sz);
+
+    dispIns(id);
+    emitCurIGsize += sz;
+}
+
 void emitter::emitIns_R_A(instruction ins, emitAttr attr, regNumber reg1, GenTreeIndir* indir)
 {
     ssize_t    offs = indir->Offset();
@@ -4236,8 +4135,7 @@ void emitter::emitIns_R_R_C(
         attr = EA_SET_FLG(attr, EA_DSP_RELOC_FLG);
     }
 
-    instrDesc*     id = emitNewInstrDsp(attr, offs);
-    UNATIVE_OFFSET sz = emitInsSizeCV(id, insCodeRM(ins));
+    instrDesc* id = emitNewInstrDsp(attr, offs);
 
     id->idIns(ins);
     id->idInsFmt(IF_RWR_RRD_MRD);
@@ -4245,6 +4143,7 @@ void emitter::emitIns_R_R_C(
     id->idReg2(reg2);
     id->idAddr()->iiaFieldHnd = fldHnd;
 
+    UNATIVE_OFFSET sz = emitInsSizeCV(id, insCodeRM(ins));
     id->idCodeSize(sz);
 
     dispIns(id);
@@ -4442,10 +4341,13 @@ void emitter::emitIns_R_R_S_I(
 //    opReg encoded in imm[7:4]
 static int encodeXmmRegAsIval(regNumber opReg)
 {
-    assert(opReg >= XMMBASE);
     // AVX/AVX2 supports 4-reg format for vblendvps/vblendvpd/vpblendvb,
     // which encodes the fourth register into imm8[7:4]
-    return (opReg - XMMBASE) << 4;
+    assert(opReg >= XMMBASE);
+    int ival = (opReg - XMMBASE) << 4;
+
+    assert((ival >= 0) && (ival <= 255));
+    return (int8_t)ival;
 }
 
 //------------------------------------------------------------------------
@@ -8304,8 +8206,8 @@ void emitter::emitDispIns(
                 // Munge any pointers if we want diff-able disassembly
                 if (emitComp->opts.disDiffable)
                 {
-                    ssize_t top12bits = (val >> 20);
-                    if ((top12bits != 0) && (top12bits != -1))
+                    ssize_t top14bits = (val >> 18);
+                    if ((top14bits != 0) && (top14bits != -1))
                     {
                         val = 0xD1FFAB1E;
                     }
@@ -8480,6 +8382,15 @@ void emitter::emitDispIns(
             emitDispAddrMode(id);
             printf(", %s", emitRegName(id->idReg1(), attr));
             break;
+
+        case IF_AWR_RRD_RRD:
+        {
+            printf("%s", sstr);
+            emitDispAddrMode(id);
+            printf(", %s", emitRegName(id->idReg1(), attr));
+            printf(", %s", emitRegName(id->idReg2(), attr));
+            break;
+        }
 
         case IF_ARD_CNS:
         case IF_AWR_CNS:
@@ -9007,7 +8918,7 @@ void emitter::emitDispIns(
             }
             else
             {
-                printf("L_M%03u_BB%02u", Compiler::s_compMethodsCount, id->idAddr()->iiaBBlabel->bbNum);
+                printf("L_M%03u_" FMT_BB, Compiler::s_compMethodsCount, id->idAddr()->iiaBBlabel->bbNum);
             }
             break;
 
@@ -9307,11 +9218,23 @@ BYTE* emitter::emitOutputAM(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
     {
         if (IsDstDstSrcAVXInstruction(ins))
         {
-            regNumber src1 = id->idReg2();
+            regNumber src1 = REG_NA;
 
-            if ((id->idInsFmt() != IF_RWR_RRD_ARD) && (id->idInsFmt() != IF_RWR_RRD_ARD_CNS))
+            switch (id->idInsFmt())
             {
-                src1 = id->idReg1();
+                case IF_RWR_RRD_ARD:
+                case IF_RWR_RRD_ARD_CNS:
+                case IF_RWR_RRD_ARD_RRD:
+                {
+                    src1 = id->idReg2();
+                    break;
+                }
+
+                default:
+                {
+                    src1 = id->idReg1();
+                    break;
+                }
             }
 
             // encode source operand reg in 'vvvv' bits in 1's complement form
@@ -9356,7 +9279,30 @@ BYTE* emitter::emitOutputAM(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
             }
         }
 
-        unsigned regcode = insEncodeReg345(ins, id->idReg1(), size, &code);
+        regNumber reg345 = REG_NA;
+        if (IsBMIInstruction(ins))
+        {
+            reg345 = getBmiRegNumber(ins);
+        }
+        if (reg345 == REG_NA)
+        {
+            switch (id->idInsFmt())
+            {
+                case IF_AWR_RRD_RRD:
+                {
+                    reg345 = id->idReg2();
+                    break;
+                }
+
+                default:
+                {
+                    reg345 = id->idReg1();
+                    break;
+                }
+            }
+        }
+        unsigned regcode = insEncodeReg345(ins, reg345, size, &code);
+
         dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
 
         if (UseVEXEncoding() && (ins != INS_crc32))
@@ -9984,6 +9930,9 @@ DONE:
             case IF_AWR_RRD:
                 break;
 
+            case IF_AWR_RRD_RRD:
+                break;
+
             case IF_ARD_CNS:
             case IF_AWR_CNS:
                 break;
@@ -10011,6 +9960,8 @@ DONE:
             switch (id->idInsFmt())
             {
                 case IF_RWR_ARD:
+                case IF_RRW_ARD:
+                case IF_RWR_RRD_ARD:
                     emitGCregDeadUpd(id->idReg1(), dst);
                     break;
                 default:
@@ -10098,7 +10049,21 @@ BYTE* emitter::emitOutputSV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
             }
         }
 
-        unsigned regcode = insEncodeReg345(ins, id->idReg1(), size, &code);
+        regNumber reg345 = REG_NA;
+        if (IsBMIInstruction(ins))
+        {
+            reg345 = getBmiRegNumber(ins);
+        }
+        if (reg345 == REG_NA)
+        {
+            reg345 = id->idReg1();
+        }
+        else
+        {
+            code = insEncodeReg3456(ins, id->idReg1(), size, code);
+        }
+        unsigned regcode = insEncodeReg345(ins, reg345, size, &code);
+
         dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
 
         if (UseVEXEncoding() && (ins != INS_crc32))
@@ -10420,6 +10385,7 @@ BYTE* emitter::emitOutputSV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
             {
                 case IF_RWR_SRD: // Register Write, Stack Read
                 case IF_RRW_SRD: // Register Read/Write, Stack Read
+                case IF_RWR_RRD_SRD:
                     emitGCregDeadUpd(id->idReg1(), dst);
                     break;
                 default:
@@ -10548,7 +10514,21 @@ BYTE* emitter::emitOutputCV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
             }
         }
 
-        unsigned regcode = insEncodeReg345(ins, id->idReg1(), size, &code);
+        regNumber reg345 = REG_NA;
+        if (IsBMIInstruction(ins))
+        {
+            reg345 = getBmiRegNumber(ins);
+        }
+        if (reg345 == REG_NA)
+        {
+            reg345 = id->idReg1();
+        }
+        else
+        {
+            code = insEncodeReg3456(ins, id->idReg1(), size, code);
+        }
+        unsigned regcode = insEncodeReg345(ins, reg345, size, &code);
+
         dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
 
         if (UseVEXEncoding() && (ins != INS_crc32))
@@ -10855,6 +10835,8 @@ BYTE* emitter::emitOutputCV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
             switch (id->idInsFmt())
             {
                 case IF_RWR_MRD:
+                case IF_RRW_MRD:
+                case IF_RWR_RRD_MRD:
                     emitGCregDeadUpd(id->idReg1(), dst);
                     break;
                 default:
@@ -11136,7 +11118,7 @@ BYTE* emitter::emitOutputRR(BYTE* dst, instrDesc* id)
 #endif // _TARGET_AMD64_
     }
 #ifdef FEATURE_HW_INTRINSICS
-    else if ((ins == INS_crc32) || (ins == INS_lzcnt) || (ins == INS_popcnt))
+    else if ((ins == INS_crc32) || (ins == INS_lzcnt) || (ins == INS_popcnt) || (ins == INS_tzcnt))
     {
         code = insEncodeRMreg(ins, code);
         if ((ins == INS_crc32) && (size > EA_1BYTE))
@@ -11201,7 +11183,16 @@ BYTE* emitter::emitOutputRR(BYTE* dst, instrDesc* id)
         }
     }
 
-    unsigned regCode = insEncodeReg345(ins, reg1, size, &code);
+    regNumber reg345 = REG_NA;
+    if (IsBMIInstruction(ins))
+    {
+        reg345 = getBmiRegNumber(ins);
+    }
+    if (reg345 == REG_NA)
+    {
+        reg345 = id->idReg1();
+    }
+    unsigned regCode = insEncodeReg345(ins, reg345, size, &code);
     regCode |= insEncodeReg012(ins, reg2, size, &code);
 
     if (TakesVexPrefix(ins))
@@ -11421,6 +11412,7 @@ BYTE* emitter::emitOutputRR(BYTE* dst, instrDesc* id)
 
                 case IF_RWR_RRD:
                 case IF_RRW_RRD:
+                case IF_RWR_RRD_RRD:
                     // INS_movxmm2i writes to reg2.
                     if (ins == INS_mov_xmm2i)
                     {
@@ -12920,6 +12912,15 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             dst     = emitOutputAM(dst, id, code | regcode);
             sz      = emitSizeOfInsDsc(id);
             break;
+
+        case IF_AWR_RRD_RRD:
+        {
+            code = insCodeMR(ins);
+            code = AddVexPrefixIfNeeded(ins, code, size);
+            dst  = emitOutputAM(dst, id, code);
+            sz   = emitSizeOfInsDsc(id);
+            break;
+        }
 
         case IF_ARD_CNS:
         case IF_AWR_CNS:

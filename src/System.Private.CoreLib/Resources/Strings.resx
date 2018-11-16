@@ -682,15 +682,6 @@
   <data name="Arg_RanksAndBounds" xml:space="preserve">
     <value>Number of lengths and lowerBounds must match.</value>
   </data>
-  <data name="Arg_ReflectionOnlyCA" xml:space="preserve">
-    <value>It is illegal to reflect on the custom attributes of a Type loaded via ReflectionOnlyGetType (see Assembly.ReflectionOnly) -- use CustomAttributeData instead.</value>
-  </data>
-  <data name="Arg_ReflectionOnlyField" xml:space="preserve">
-    <value>It is illegal to get or set the value on a field on a Type loaded via ReflectionOnlyGetType.</value>
-  </data>
-  <data name="Arg_ReflectionOnlyInvoke" xml:space="preserve">
-    <value>It is illegal to invoke a method on a Type loaded via ReflectionOnlyGetType.</value>
-  </data>
   <data name="Arg_RegBadKeyKind" xml:space="preserve">
     <value>The specified RegistryValueKind is an invalid value.</value>
   </data>
@@ -1257,6 +1248,12 @@
   </data>
   <data name="Argument_InvalidSerializedString" xml:space="preserve">
     <value>The specified serialized string '{0}' is not supported.</value>
+  </data>
+  <data name="Argument_InvalidStartupHookSyntax" xml:space="preserve">
+    <value>The syntax of the startup hook variable was invalid.</value>
+  </data>
+  <data name="Argument_InvalidStartupHookSignature" xml:space="preserve">
+    <value>The signature of the startup hook '{0}' in assembly '{1}' was invalid. It must be 'public static void Initialize()'.</value>
   </data>
   <data name="Argument_InvalidTimeSpanStyles" xml:space="preserve">
     <value>An undefined TimeSpanStyles value is being used.</value>
@@ -1921,11 +1918,17 @@
   <data name="ArrayTypeMismatch_ConstrainedCopy" xml:space="preserve">
     <value>Array.ConstrainedCopy will only work on array types that are provably compatible, without any form of boxing, unboxing, widening, or casting of each array element.  Change the array types (i.e., copy a Derived[] to a Base[]), or use a mitigation strategy in the CER for Array.Copy's less powerful reliability contract, such as cloning the array or throwing away the potentially corrupt destination array.</value>
   </data>
-  <data name="Arugment_EmitMixedContext1" xml:space="preserve">
-    <value>Type '{0}' was loaded in the ReflectionOnly context but the AssemblyBuilder was not created as AssemblyBuilderAccess.ReflectionOnly.</value>
+  <data name="AssemblyLoadContext_Constructor_CannotInstantiateWhileUnloading" xml:space="preserve">
+    <value>Cannot instantiate AssemblyLoadContext while the current process is exiting.</value>
   </data>
-  <data name="Arugment_EmitMixedContext2" xml:space="preserve">
-    <value>Type '{0}' was not loaded in the ReflectionOnly context but the AssemblyBuilder was created as AssemblyBuilderAccess.ReflectionOnly.</value>
+  <data name="AssemblyLoadContext_Unload_CannotUnloadIfNotCollectible" xml:space="preserve">
+    <value>Cannot unload non-collectible AssemblyLoadContext.</value>
+  </data>
+  <data name="AssemblyLoadContext_Unload_AlreadyUnloaded" xml:space="preserve">
+    <value>Unload called on AssemblyLoadContext that is unloading or that was already unloaded.</value>
+  </data>
+  <data name="AssemblyLoadContext_Verify_NotUnloading" xml:space="preserve">
+    <value>AssemblyLoadContext is unloading or was already unloaded.</value>
   </data>
   <data name="AssertionFailed" xml:space="preserve">
     <value>Assertion failed.</value>
@@ -1992,39 +1995,6 @@
   </data>
   <data name="ConcurrentCollection_SyncRoot_NotSupported" xml:space="preserve">
     <value>The SyncRoot property may not be used for the synchronization of concurrent collections.</value>
-  </data>
-  <data name="event_Barrier_PhaseFinished" xml:space="preserve">
-    <value>Barrier finishing phase {1}.</value>
-  </data>
-  <data name="event_ConcurrentBag_TryPeekSteals" xml:space="preserve">
-    <value>ConcurrentBag stealing in TryPeek.</value>
-  </data>
-  <data name="event_ConcurrentBag_TryTakeSteals" xml:space="preserve">
-    <value>ConcurrentBag stealing in TryTake.</value>
-  </data>
-  <data name="event_ConcurrentStack_FastPopFailed" xml:space="preserve">
-    <value>Pop from ConcurrentStack spun {0} time(s).</value>
-  </data>
-  <data name="event_ConcurrentStack_FastPushFailed" xml:space="preserve">
-    <value>Push to ConcurrentStack spun {0} time(s).</value>
-  </data>
-  <data name="event_ParallelFork" xml:space="preserve">
-    <value>Task {1} entering fork/join {2}.</value>
-  </data>
-  <data name="event_ParallelInvokeBegin" xml:space="preserve">
-    <value>Beginning ParallelInvoke {2} from Task {1} for {4} actions.</value>
-  </data>
-  <data name="event_ParallelInvokeEnd" xml:space="preserve">
-    <value>Ending ParallelInvoke {2}.</value>
-  </data>
-  <data name="event_ParallelJoin" xml:space="preserve">
-    <value>Task {1} leaving fork/join {2}.</value>
-  </data>
-  <data name="event_ParallelLoopBegin" xml:space="preserve">
-    <value>Beginning {3} loop {2} from Task {1}.</value>
-  </data>
-  <data name="event_ParallelLoopEnd" xml:space="preserve">
-    <value>Ending loop {2} after {3} iterations.</value>
   </data>
   <data name="event_SpinLock_FastPathFailed" xml:space="preserve">
     <value>SpinLock beginning to spin.</value>
@@ -2608,9 +2578,6 @@
   <data name="InvalidOperation_NotAllowedInDynamicMethod" xml:space="preserve">
     <value>The requested operation is invalid for DynamicMethod.</value>
   </data>
-  <data name="InvalidOperation_NotAllowedInReflectionOnly" xml:space="preserve">
-    <value>The requested operation is invalid in the ReflectionOnly context.</value>
-  </data>
   <data name="InvalidOperation_NotAVarArgCallingConvention" xml:space="preserve">
     <value>Calling convention must be VarArgs.</value>
   </data>
@@ -3081,6 +3048,9 @@
   </data>
   <data name="NotSupported_UnknownTypeCode" xml:space="preserve">
     <value>TypeCode '{0}' was not valid.</value>
+  </data>
+  <data name="NotSupported_WaitAllSTAThread" xml:space="preserve">
+    <value>WaitAll for multiple handles on a STA thread is not supported.</value>
   </data>
   <data name="NotSupported_UnreadableStream" xml:space="preserve">
     <value>Stream does not support reading.</value>

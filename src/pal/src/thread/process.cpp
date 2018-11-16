@@ -1316,6 +1316,29 @@ TerminateProcess(
 
 /*++
 Function:
+  RaiseFailFastException
+
+See MSDN doc.
+--*/
+VOID
+PALAPI
+RaiseFailFastException(
+    IN PEXCEPTION_RECORD pExceptionRecord,
+    IN PCONTEXT pContextRecord,
+    IN DWORD dwFlags)
+{
+    PERF_ENTRY(RaiseFailFastException);
+    ENTRY("RaiseFailFastException");
+
+    TerminateCurrentProcessNoExit(TRUE);
+    PROCAbort();
+
+    LOGEXIT("RaiseFailFastException");
+    PERF_EXIT(RaiseFailFastException);
+}
+
+/*++
+Function:
   PROCEndProcess
   
   Called from TerminateProcess and ExitProcess. This does the work of
@@ -1589,9 +1612,12 @@ public:
 
         // See semaphore name format for details about this value. We store it so that
         // it can be used by the cleanup code that removes the semaphore with sem_unlink.
-        INDEBUG(BOOL disambiguationKeyRet = )
-        GetProcessIdDisambiguationKey(m_processId, &m_processIdDisambiguationKey);
-        _ASSERTE(disambiguationKeyRet == TRUE || m_processIdDisambiguationKey == 0);
+        BOOL ret = GetProcessIdDisambiguationKey(m_processId, &m_processIdDisambiguationKey);
+
+        // If GetProcessIdDisambiguationKey failed for some reason, it should set the value 
+        // to 0. We expect that anyone else opening the semaphore name will also fail and thus 
+        // will also try to use 0 as the value.
+        _ASSERTE(ret == TRUE || m_processIdDisambiguationKey == 0);
 
         sprintf_s(startupSemName,
                   sizeof(startupSemName),
@@ -1901,7 +1927,12 @@ PAL_NotifyRuntimeStarted()
     BOOL launched = FALSE;
 
     UINT64 processIdDisambiguationKey = 0;
-    GetProcessIdDisambiguationKey(gPID, &processIdDisambiguationKey);
+    BOOL ret = GetProcessIdDisambiguationKey(gPID, &processIdDisambiguationKey);
+
+    // If GetProcessIdDisambiguationKey failed for some reason, it should set the value 
+    // to 0. We expect that anyone else making the semaphore name will also fail and thus 
+    // will also try to use 0 as the value.
+    _ASSERTE(ret == TRUE || processIdDisambiguationKey == 0);
 
     sprintf_s(startupSemName, sizeof(startupSemName), RuntimeStartupSemaphoreName, HashSemaphoreName(gPID, processIdDisambiguationKey));
     sprintf_s(continueSemName, sizeof(continueSemName), RuntimeContinueSemaphoreName, HashSemaphoreName(gPID, processIdDisambiguationKey));
@@ -2040,6 +2071,7 @@ GetProcessIdDisambiguationKey(DWORD processId, UINT64 *disambiguationKey)
     FILE *statFile = fopen(statFileName, "r");
     if (statFile == nullptr) 
     {
+        TRACE("GetProcessIdDisambiguationKey: fopen() FAILED");
         SetLastError(ERROR_INVALID_HANDLE);
         return FALSE;
     }
@@ -2048,7 +2080,8 @@ GetProcessIdDisambiguationKey(DWORD processId, UINT64 *disambiguationKey)
     size_t lineLen = 0;
     if (getline(&line, &lineLen, statFile) == -1)
     {
-        _ASSERTE(!"Failed to getline from the stat file for a process.");
+        TRACE("GetProcessIdDisambiguationKey: getline() FAILED");
+        SetLastError(ERROR_INVALID_HANDLE);
         return FALSE;
     }
 

@@ -1039,7 +1039,7 @@ void AppDomain::DeleteNativeCodeRanges()
         return;
 
     // Shutdown assemblies
-    AssemblyIterator i = IterateAssembliesEx( (AssemblyIterationFlags)(kIncludeLoaded | kIncludeLoading | kIncludeExecution | kIncludeIntrospection | kIncludeFailedToLoad) );
+    AssemblyIterator i = IterateAssembliesEx( (AssemblyIterationFlags)(kIncludeLoaded | kIncludeLoading | kIncludeExecution | kIncludeFailedToLoad) );
     CollectibleAssemblyHolder<DomainAssembly *> pDomainAssembly;
 
     while (i.Next(pDomainAssembly.This()))
@@ -1071,7 +1071,7 @@ void AppDomain::ShutdownAssemblies()
 
     // Stage 1: call code:Assembly::Terminate
     AssemblyIterator i = IterateAssembliesEx((AssemblyIterationFlags)(
-        kIncludeLoaded | kIncludeLoading | kIncludeExecution | kIncludeIntrospection | kIncludeFailedToLoad | kIncludeCollected));
+        kIncludeLoaded | kIncludeLoading | kIncludeExecution | kIncludeFailedToLoad | kIncludeCollected));
     DomainAssembly * pDomainAssembly = NULL;
 
     while (i.Next_UnsafeNoAddRef(&pDomainAssembly))
@@ -1086,7 +1086,7 @@ void AppDomain::ShutdownAssemblies()
     
     // Stage 2: Clear the list of assemblies
     i = IterateAssembliesEx((AssemblyIterationFlags)(
-        kIncludeLoaded | kIncludeLoading | kIncludeExecution | kIncludeIntrospection | kIncludeFailedToLoad | kIncludeCollected));
+        kIncludeLoaded | kIncludeLoading | kIncludeExecution | kIncludeFailedToLoad | kIncludeCollected));
     while (i.Next_UnsafeNoAddRef(&pDomainAssembly))
     {
         // We are in shutdown path, no one else can get to the list anymore
@@ -1207,7 +1207,7 @@ void AppDomain::ReleaseFiles()
 
     // Shutdown assemblies
     AssemblyIterator i = IterateAssembliesEx((AssemblyIterationFlags)(
-        kIncludeLoaded  | kIncludeExecution | kIncludeIntrospection | kIncludeFailedToLoad | kIncludeLoading));
+        kIncludeLoaded  | kIncludeExecution | kIncludeFailedToLoad | kIncludeLoading));
     CollectibleAssemblyHolder<DomainAssembly *> pAsm;
 
     while (i.Next(pAsm.This()))
@@ -3074,8 +3074,9 @@ void SystemDomain::SetThreadAptState (Thread::ApartmentState state)
         Thread::ApartmentState pState = pThread->SetApartment(Thread::AS_InSTA, TRUE);
         _ASSERTE(pState == Thread::AS_InSTA);
     }
-    else if (state == Thread::AS_InMTA)
+    else
     {
+        // If an apartment state was not explicitly requested, default to MTA
         Thread::ApartmentState pState = pThread->SetApartment(Thread::AS_InMTA, TRUE);
         _ASSERTE(pState == Thread::AS_InMTA);
     }
@@ -4833,7 +4834,7 @@ void AppDomain::AddAssembly(DomainAssembly * assem)
     }
 }
 
-void AppDomain::RemoveAssembly_Unlocked(DomainAssembly * pAsm)
+void AppDomain::RemoveAssembly(DomainAssembly * pAsm)
 {
     CONTRACTL
     {
@@ -4842,8 +4843,7 @@ void AppDomain::RemoveAssembly_Unlocked(DomainAssembly * pAsm)
     }
     CONTRACTL_END;
     
-    _ASSERTE(GetAssemblyListLock()->OwnedByCurrentThread());
-    
+    CrstHolder ch(GetAssemblyListLock());
     DWORD asmCount = m_Assemblies.GetCount_Unlocked();
     for (DWORD i = 0; i < asmCount; ++i)
     {
@@ -4861,8 +4861,7 @@ BOOL AppDomain::ContainsAssembly(Assembly * assem)
 {
     WRAPPER_NO_CONTRACT;
     AssemblyIterator i = IterateAssembliesEx((AssemblyIterationFlags)(
-        kIncludeLoaded | 
-        (assem->IsIntrospectionOnly() ? kIncludeIntrospection : kIncludeExecution)));
+        kIncludeLoaded | kIncludeExecution));
     CollectibleAssemblyHolder<DomainAssembly *> pDomainAssembly;
 
     while (i.Next(pDomainAssembly.This()))
@@ -5561,11 +5560,26 @@ DomainAssembly *AppDomain::LoadDomainAssemblyInternal(AssemblySpec* pIdentity,
     
     if (result == NULL)
     {
+        LoaderAllocator *pLoaderAllocator = NULL;
+
+#ifndef CROSSGEN_COMPILE
+        ICLRPrivBinder *pFileBinder = pFile->GetBindingContext();
+        if (pFileBinder != NULL)
+        {
+            // Assemblies loaded with AssemblyLoadContext need to use a different LoaderAllocator if
+            // marked as collectible
+            pFileBinder->GetLoaderAllocator((LPVOID*)&pLoaderAllocator);
+        }
+#endif // !CROSSGEN_COMPILE
+
+        if (pLoaderAllocator == NULL)
+        {
+            pLoaderAllocator = this->GetLoaderAllocator();
+        }
+
         // Allocate the DomainAssembly a bit early to avoid GC mode problems. We could potentially avoid
         // a rare redundant allocation by moving this closer to FileLoadLock::Create, but it's not worth it.
-
-        NewHolder<DomainAssembly> pDomainAssembly;
-        pDomainAssembly = new DomainAssembly(this, pFile, this->GetLoaderAllocator());
+        NewHolder<DomainAssembly> pDomainAssembly = new DomainAssembly(this, pFile, pLoaderAllocator);
 
         LoadLockHolder lock(this);
 
@@ -5580,6 +5594,14 @@ DomainAssembly *AppDomain::LoadDomainAssemblyInternal(AssemblySpec* pIdentity,
                 // We are the first one in - create the DomainAssembly
                 fileLock = FileLoadLock::Create(lock, pFile, pDomainAssembly);
                 pDomainAssembly.SuppressRelease();
+#ifndef CROSSGEN_COMPILE
+                if (pDomainAssembly->IsCollectible())
+                {
+                    // We add the assembly to the LoaderAllocator only when we are sure that it can be added
+                    // and won't be deleted in case of a concurrent load from the same ALC
+                    ((AssemblyLoaderAllocator *)pLoaderAllocator)->AddDomainAssembly(pDomainAssembly);
+                }
+#endif // !CROSSGEN_COMPILE
             }
         }
         else
@@ -6003,17 +6025,15 @@ AppDomain::SharePolicy AppDomain::GetSharePolicy()
 #endif // FEATURE_LOADER_OPTIMIZATION
 
 
-void AppDomain::CheckForMismatchedNativeImages(AssemblySpec * pSpec, const GUID * pGuid)
+static void NormalizeAssemblySpecForNativeDependencies(AssemblySpec * pSpec)
 {
-    STANDARD_VM_CONTRACT;
-
-    //
-    // The native images are ever used only for trusted images in CoreCLR.
-    // We don't wish to open the IL file at runtime so we just forgo any
-    // eager consistency checking. But we still want to prevent mistmatched 
-    // NGen images from being used. We record all mappings between assembly 
-    // names and MVID, and fail once we detect mismatch.
-    //
+    CONTRACTL
+    {
+        THROWS;
+        GC_NOTRIGGER;
+        MODE_ANY;
+    }
+    CONTRACTL_END;
 
     if (pSpec->IsStrongNamed() && pSpec->HasPublicKey())
     {
@@ -6031,7 +6051,21 @@ void AppDomain::CheckForMismatchedNativeImages(AssemblySpec * pSpec, const GUID 
     pContext->usRevisionNumber = (USHORT)-1;
 
     // Ignore the WinRT type while considering if two assemblies have the same identity.
-    pSpec->SetWindowsRuntimeType(NULL, NULL);
+    pSpec->SetWindowsRuntimeType(NULL, NULL);    
+}
+
+void AppDomain::CheckForMismatchedNativeImages(AssemblySpec * pSpec, const GUID * pGuid)
+{
+    STANDARD_VM_CONTRACT;
+
+    //
+    // The native images are ever used only for trusted images in CoreCLR.
+    // We don't wish to open the IL file at runtime so we just forgo any
+    // eager consistency checking. But we still want to prevent mistmatched 
+    // NGen images from being used. We record all mappings between assembly 
+    // names and MVID, and fail once we detect mismatch.
+    //
+    NormalizeAssemblySpecForNativeDependencies(pSpec);
 
     CrstHolder ch(&m_DomainCrst);
 
@@ -6052,23 +6086,39 @@ void AppDomain::CheckForMismatchedNativeImages(AssemblySpec * pSpec, const GUID 
         //
         // No entry yet - create one
         //
-        AllocMemTracker amTracker;
-        AllocMemTracker *pamTracker = &amTracker;
-
-        NativeImageDependenciesEntry * pNewEntry = 
-            new (pamTracker->Track(GetLowFrequencyHeap()->AllocMem(S_SIZE_T(sizeof(NativeImageDependenciesEntry)))))
-                NativeImageDependenciesEntry();
-
+        NativeImageDependenciesEntry * pNewEntry = new NativeImageDependenciesEntry();
         pNewEntry->m_AssemblySpec.CopyFrom(pSpec);
-        pNewEntry->m_AssemblySpec.CloneFieldsToLoaderHeap(AssemblySpec::ALL_OWNED, GetLowFrequencyHeap(), pamTracker);
-
+        pNewEntry->m_AssemblySpec.CloneFields(AssemblySpec::ALL_OWNED);
         pNewEntry->m_guidMVID = *pGuid;
-
         m_NativeImageDependencies.Add(pNewEntry);
-        amTracker.SuppressRelease();
     }
 }
 
+BOOL AppDomain::RemoveNativeImageDependency(AssemblySpec * pSpec)
+{
+    CONTRACTL
+    {
+        GC_NOTRIGGER;
+        PRECONDITION(CheckPointer(pSpec));
+    }
+    CONTRACTL_END;
+
+    BOOL result = FALSE;
+    NormalizeAssemblySpecForNativeDependencies(pSpec);
+
+    CrstHolder ch(&m_DomainCrst);
+
+    const NativeImageDependenciesEntry * pEntry = m_NativeImageDependencies.Lookup(pSpec);
+
+    if (pEntry != NULL)
+    {
+        m_NativeImageDependencies.Remove(pSpec);
+        delete pEntry;
+        result = TRUE;
+    }
+
+    return result;
+}
 
 void AppDomain::SetupSharedStatics()
 {
@@ -6163,7 +6213,7 @@ DomainAssembly * AppDomain::FindAssembly(PEAssembly * pFile, FindAssemblyOptions
     AssemblyIterator i = IterateAssembliesEx((AssemblyIterationFlags)(
         kIncludeLoaded | 
         (includeFailedToLoad ? kIncludeFailedToLoad : 0) |
-        (pFile->IsIntrospectionOnly() ? kIncludeIntrospection : kIncludeExecution)));
+        kIncludeExecution));
     CollectibleAssemblyHolder<DomainAssembly *> pDomainAssembly;
 
     while (i.Next(pDomainAssembly.This()))
@@ -6484,6 +6534,44 @@ HMODULE AppDomain::FindUnmanagedImageInCache(LPCWSTR libraryName)
     RETURN (HMODULE) m_UnmanagedCache.LookupEntry(&spec, 0);
 }
 
+BOOL AppDomain::RemoveFileFromCache(PEAssembly *pFile)
+{
+    CONTRACTL
+    {
+        GC_TRIGGERS;
+        PRECONDITION(CheckPointer(pFile));
+    }
+    CONTRACTL_END;
+
+    LoadLockHolder lock(this);
+    FileLoadLock *fileLock = (FileLoadLock *)lock->FindFileLock(pFile);
+
+    if (fileLock == NULL)
+        return FALSE;
+
+    VERIFY(lock->Unlink(fileLock));
+
+    fileLock->Release();
+
+    return TRUE;
+}
+
+BOOL AppDomain::RemoveAssemblyFromCache(DomainAssembly* pAssembly)
+{
+    CONTRACTL
+    {
+        THROWS;
+        GC_TRIGGERS;
+        MODE_ANY;
+        PRECONDITION(CheckPointer(pAssembly));
+        INJECT_FAULT(COMPlusThrowOM(););
+    }
+    CONTRACTL_END;
+    
+    CrstHolder holder(&m_DomainCacheCrst);
+
+    return m_AssemblyCache.RemoveAssembly(pAssembly);
+}
 
 BOOL AppDomain::IsCached(AssemblySpec *pSpec)
 {
@@ -6765,8 +6853,7 @@ AppDomain::BindHostedPrivAssembly(
     PEAssembly *       pParentAssembly,
     ICLRPrivAssembly * pPrivAssembly, 
     IAssemblyName *    pAssemblyName, 
-    PEAssembly **      ppAssembly, 
-    BOOL               fIsIntrospectionOnly) // = FALSE
+    PEAssembly **      ppAssembly)
 {
     STANDARD_VM_CONTRACT;
 
@@ -6824,7 +6911,7 @@ AppDomain::BindHostedPrivAssembly(
     _ASSERTE(pPEImageIL != nullptr);
     
     // Create a PEAssembly using the IL and NI images.
-    PEAssemblyHolder pPEAssembly = PEAssembly::Open(pParentAssembly, pPEImageIL, pPEImageNI, pPrivAssembly, fIsIntrospectionOnly);
+    PEAssemblyHolder pPEAssembly = PEAssembly::Open(pParentAssembly, pPEImageIL, pPEImageNI, pPrivAssembly);
 
 
     // Ask the binder to verify.
@@ -6840,7 +6927,6 @@ AppDomain::BindHostedPrivAssembly(
 PEAssembly * AppDomain::BindAssemblySpec(
     AssemblySpec *         pSpec, 
     BOOL                   fThrowOnFileNotFound, 
-    BOOL                   fRaisePrebindEvents, 
     StackCrawlMark *       pCallerStackMark, 
     BOOL                   fUseHostBinderIfAvailable)
 {
@@ -6939,8 +7025,6 @@ EndTry2:;
                 {
                     bool fAddFileToCache = false;
 
-                    BOOL fIsWellKnown = FALSE;
-
                     // Use CoreClr's fusion alternative
                     CoreBindResult bindResult;
 
@@ -6959,7 +7043,7 @@ EndTry2:;
                         {
                             // IsSystem on the PEFile should be false, even for mscorlib satellites
                             result = PEAssembly::Open(&bindResult,
-                                                      FALSE, pSpec->IsIntrospectionOnly());
+                                                      FALSE);
                         }
                         fAddFileToCache = true;
                         
@@ -6982,7 +7066,7 @@ EndTry2:;
                             AddFileToCache(pSpec, result, TRUE /*fAllowFailure*/);
                         }
                     }
-                    else if (!fIsWellKnown)
+                    else
                     {
                         _ASSERTE(fThrowOnFileNotFound == FALSE);
 
@@ -9853,7 +9937,6 @@ Assembly* AppDomain::RaiseResourceResolveEvent(DomainAssembly* pAssembly, LPCSTR
 Assembly * 
 AppDomain::RaiseAssemblyResolveEvent(
     AssemblySpec * pSpec, 
-    BOOL           fIntrospection, 
     BOOL           fPreBind)
 {
     CONTRACT(Assembly*)
@@ -9931,12 +10014,6 @@ AppDomain::RaiseAssemblyResolveEvent(
 
     if (pAssembly != NULL)
     {
-        if  ((!(pAssembly->IsIntrospectionOnly())) != (!fIntrospection))
-        {
-            // Cannot return an introspection assembly from an execution callback or vice-versa
-            COMPlusThrow(kFileLoadException, pAssembly->IsIntrospectionOnly() ? IDS_CLASSLOAD_ASSEMBLY_RESOLVE_RETURNED_INTROSPECTION : IDS_CLASSLOAD_ASSEMBLY_RESOLVE_RETURNED_EXECUTION);
-        }
-
         // Check that the public key token matches the one specified in the spec
         // MatchPublicKeys throws as appropriate
         pSpec->MatchPublicKeys(pAssembly);
@@ -10908,24 +10985,13 @@ AppDomain::AssemblyIterator::Next_Unlocked(
             }
         }
 
-        // Next, reject DomainAssemblies whose execution / introspection status is
+        // Next, reject DomainAssemblies whose execution status is
         // not to be included in the enumeration
         
-        if (pDomainAssembly->IsIntrospectionOnly())
+        // execution assembly
+        if (!(m_assemblyIterationFlags & kIncludeExecution))
         {
-            // introspection assembly
-            if (!(m_assemblyIterationFlags & kIncludeIntrospection))
-            {
-                continue; // reject
-            }
-        }
-        else
-        {
-            // execution assembly
-            if (!(m_assemblyIterationFlags & kIncludeExecution))
-            {
-                continue; // reject
-            }
+            continue; // reject
         }
 
         // Next, reject collectible assemblies
@@ -10996,7 +11062,7 @@ AppDomain::AssemblyIterator::Next_UnsafeNoAddRef(
     
     // Make sure we are iterating all assemblies (see the only caller code:AppDomain::ShutdownAssemblies)
     _ASSERTE(m_assemblyIterationFlags == 
-        (kIncludeLoaded | kIncludeLoading | kIncludeExecution | kIncludeIntrospection | kIncludeFailedToLoad | kIncludeCollected));
+        (kIncludeLoaded | kIncludeLoading | kIncludeExecution | kIncludeFailedToLoad | kIncludeCollected));
     // It also means that we do not exclude anything
     _ASSERTE((m_assemblyIterationFlags & kExcludeCollectible) == 0);
     
@@ -11402,7 +11468,7 @@ AppDomain::EnumMemoryRegions(CLRDataEnumMemoryFlags flags,
     }
 
     m_Assemblies.EnumMemoryRegions(flags);
-    AssemblyIterator assem = IterateAssembliesEx((AssemblyIterationFlags)(kIncludeLoaded | kIncludeExecution | kIncludeIntrospection));
+    AssemblyIterator assem = IterateAssembliesEx((AssemblyIterationFlags)(kIncludeLoaded | kIncludeExecution));
     CollectibleAssemblyHolder<DomainAssembly *> pDomainAssembly;
     
     while (assem.Next(pDomainAssembly.This()))

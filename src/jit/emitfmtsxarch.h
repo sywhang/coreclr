@@ -111,7 +111,7 @@ IF_DEF(RRW_RRW_CNS, IS_R1_RW|IS_R2_RW,          SCNS)     // r/w    reg , r/w  r
 IF_DEF(RWR_RRD_RRD, IS_R1_WR|IS_R2_RD|IS_R3_RD, NONE)     // write  reg , read reg2 , read reg3
 IF_DEF(RWR_RRD_RRD_CNS, IS_R1_WR|IS_R2_RD|IS_R3_RD, SCNS) // write  reg , read reg2 , read reg3, const
 
-IF_DEF(RWR_RRD_RRD_RRD, IS_R1_WR|IS_R2_RD|IS_R3_RD|IS_R4_RD, NONE)     // write  reg , read reg2 , read reg3 , read reg4
+IF_DEF(RWR_RRD_RRD_RRD, IS_R1_WR|IS_R2_RD|IS_R3_RD|IS_R4_RD, CNS)     // write  reg , read reg2 , read reg3 , read reg4
 //----------------------------------------------------------------------------
 // The following formats are used for direct addresses (e.g. static data members)
 //----------------------------------------------------------------------------
@@ -194,6 +194,8 @@ IF_DEF(RWR_RRD_ARD_RRD, IS_AM_RD|IS_R1_WR|IS_R2_RD|IS_R3_RD, AMD_CNS) // write  
 IF_DEF(ARD_RRD,     IS_AM_RD|IS_R1_RD,          AMD )     // read  [adr], read  reg
 IF_DEF(AWR_RRD,     IS_AM_WR|IS_R1_RD,          AMD )     // write [adr], read  reg
 IF_DEF(ARW_RRD,     IS_AM_RW|IS_R1_RD,          AMD )     // r/w   [adr], read  reg
+
+IF_DEF(AWR_RRD_RRD, IS_AM_WR|IS_R1_RD|IS_R2_RD, AMD )     // write  [adr], read  reg, read  reg
 
 IF_DEF(ARD_CNS,     IS_AM_RD,                   AMD_CNS)  // read  [adr], const
 IF_DEF(AWR_CNS,     IS_AM_WR,                   AMD_CNS)  // write [adr], const

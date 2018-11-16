@@ -68,6 +68,7 @@
 
 #include "versionresilienthashcode.h"
 #include "inlinetracking.h"
+#include "jithost.h"
 
 #ifdef CROSSGEN_COMPILE
 CompilationDomain * theDomain;
@@ -345,7 +346,7 @@ HRESULT CEECompileInfo::LoadAssemblyByPath(
 #endif // !_TARGET_64BIT_
         
         AssemblySpec spec;
-        spec.InitializeSpec(TokenFromRid(1, mdtAssembly), pImage->GetMDImport(), NULL, FALSE);
+        spec.InitializeSpec(TokenFromRid(1, mdtAssembly), pImage->GetMDImport(), NULL);
 
         if (spec.IsMscorlib())
         {
@@ -402,7 +403,7 @@ HRESULT CEECompileInfo::LoadAssemblyByPath(
                     // that IL assemblies will be available.
                     fExplicitBindToNativeImage
                     );
-                pAssemblyHolder = PEAssembly::Open(&bindResult,FALSE,FALSE);
+                pAssemblyHolder = PEAssembly::Open(&bindResult,FALSE);
             }
 
             // Now load assembly into domain.
@@ -476,7 +477,7 @@ HRESULT CEECompileInfo::LoadTypeRefWinRT(
                 LPCSTR pszname;
                 pAssemblyImport->GetNameOfTypeRef(ref, &psznamespace, &pszname);
                 AssemblySpec spec;
-                spec.InitializeSpec(tkResolutionScope, pAssemblyImport, NULL, FALSE);
+                spec.InitializeSpec(tkResolutionScope, pAssemblyImport, NULL);
                 spec.SetWindowsRuntimeType(psznamespace, pszname);
                 
                 _ASSERTE(spec.HasBindableIdentity());
@@ -1110,6 +1111,11 @@ void CEECompileInfo::CompressDebugInfo(
     STANDARD_VM_CONTRACT;
 
     CompressDebugInfo::CompressBoundariesAndVars(pOffsetMapping, iOffsetMapping, pNativeVarInfo, iNativeVarInfo, pDebugInfoBuffer, NULL);
+}
+
+ICorJitHost* CEECompileInfo::GetJitHost()
+{
+    return JitHost::getJitHost();
 }
 
 HRESULT CEECompileInfo::GetBaseJitFlags(
@@ -6974,11 +6980,6 @@ void CompilationDomain::Init()
 #endif
 
     SetCompilationDomain();
-
-
-#ifdef _DEBUG 
-    g_pConfig->DisableGenerateStubForHost();
-#endif
 }
 
 HRESULT CompilationDomain::AddDependencyEntry(PEAssembly *pFile,
@@ -7291,7 +7292,6 @@ void ReportMissingDependency(Exception * e)
 PEAssembly *CompilationDomain::BindAssemblySpec(
     AssemblySpec *pSpec,
     BOOL fThrowOnFileNotFound,
-    BOOL fRaisePrebindEvents,
     StackCrawlMark *pCallerStackMark,
     BOOL fUseHostBinderIfAvailable)
 {
@@ -7309,7 +7309,6 @@ PEAssembly *CompilationDomain::BindAssemblySpec(
         pFile = AppDomain::BindAssemblySpec(
             pSpec,
             fThrowOnFileNotFound,
-            fRaisePrebindEvents,
             pCallerStackMark,
             fUseHostBinderIfAvailable);
     }

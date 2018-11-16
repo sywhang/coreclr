@@ -13,16 +13,42 @@ using System.Xml.Serialization;
 
 namespace R2RDump
 {
-    public interface BaseUnwindInfo
+    public abstract class BaseUnwindInfo
     {
-
+        public int Size { get; set; }
     }
 
+    public abstract class BaseGcTransition
+    {
+        [XmlAttribute("Index")]
+        public int CodeOffset { get; set; }
+
+        public BaseGcTransition() { }
+
+        public BaseGcTransition(int codeOffset)
+        {
+            CodeOffset = codeOffset;
+        }
+    }
+
+    public abstract class BaseGcInfo
+    {
+        public int Size { get; set; }
+        public int Offset { get; set; }
+        public int CodeLength { get; set; }
+        [XmlIgnore]
+        public Dictionary<int, List<BaseGcTransition>> Transitions { get; set; }
+    }
+
+    /// <summary>
+    /// based on <a href="https://github.com/dotnet/coreclr/blob/master/src/pal/inc/pal.h">src/pal/inc/pal.h</a> _RUNTIME_FUNCTION
+    /// </summary>
     public class RuntimeFunction
     {
         /// <summary>
         /// The index of the runtime function
         /// </summary>
+        [XmlAttribute("Index")]
         public int Id { get; set; }
 
         /// <summary>
@@ -44,6 +70,9 @@ namespace R2RDump
         /// </summary>
         public int UnwindRVA { get; set; }
 
+        /// <summary>
+        /// The start offset of the runtime function with is non-zero for methods with multiple runtime functions
+        /// </summary>
         public int CodeOffset { get; set; }
 
         /// <summary>
@@ -55,7 +84,7 @@ namespace R2RDump
 
         public RuntimeFunction() { }
 
-        public RuntimeFunction(int id, int startRva, int endRva, int unwindRva, int codeOffset, R2RMethod method, BaseUnwindInfo unwindInfo, GcInfo gcInfo)
+        public RuntimeFunction(int id, int startRva, int endRva, int unwindRva, int codeOffset, R2RMethod method, BaseUnwindInfo unwindInfo, BaseGcInfo gcInfo)
         {
             Id = id;
             StartAddress = startRva;
@@ -66,9 +95,25 @@ namespace R2RDump
             {
                 Size = endRva - startRva;
             }
+            else if (unwindInfo is x86.UnwindInfo)
+            {
+                Size = (int)((x86.UnwindInfo)unwindInfo).FunctionLength;
+            }
+            else if (unwindInfo is Arm.UnwindInfo)
+            {
+                Size = (int)((Arm.UnwindInfo)unwindInfo).FunctionLength;
+            }
+            else if (unwindInfo is Arm64.UnwindInfo)
+            {
+                Size = (int)((Arm64.UnwindInfo)unwindInfo).FunctionLength;
+            }
             else if (gcInfo != null)
             {
                 Size = gcInfo.CodeLength;
+            }
+            else
+            {
+                Size = -1;
             }
             CodeOffset = codeOffset;
             method.GcInfo = gcInfo;
@@ -100,6 +145,12 @@ namespace R2RDump
 
         MetadataReader _mdReader;
         MethodDefinition _methodDef;
+
+        /// <summary>
+        /// An unique index for the method
+        /// </summary>
+        [XmlAttribute("Index")]
+        public int Index { get; set; }
 
         /// <summary>
         /// The name of the method
@@ -141,7 +192,9 @@ namespace R2RDump
         public int EntryPointRuntimeFunctionId { get; set; }
 
         [XmlIgnore]
-        public GcInfo GcInfo { get; set; }
+        public BaseGcInfo GcInfo { get; set; }
+
+        public FixupCell[] Fixups { get; set; }
 
         /// <summary>
         /// Maps all the generic parameters to the type in the instance
@@ -188,8 +241,9 @@ namespace R2RDump
         /// <summary>
         /// Extracts the method signature from the metadata by rid
         /// </summary>
-        public R2RMethod(MetadataReader mdReader, uint rid, int entryPointId, GenericElementTypes[] instanceArgs, uint[] tok)
+        public R2RMethod(int index, MetadataReader mdReader, uint rid, int entryPointId, GenericElementTypes[] instanceArgs, uint[] tok, FixupCell[] fixups)
         {
+            Index = index;
             Token = _mdtMethodDef | rid;
             Rid = rid;
             EntryPointRuntimeFunctionId = entryPointId;
@@ -217,18 +271,23 @@ namespace R2RDump
                 argCount = signatureReader.ReadCompressedInteger();
             }
 
+            Fixups = fixups;
+
             DisassemblingTypeProvider provider = new DisassemblingTypeProvider();
             if (IsGeneric && instanceArgs != null && tok != null)
             {
                 InitGenericInstances(genericParams, instanceArgs, tok);
             }
-            
+
             DisassemblingGenericContext genericContext = new DisassemblingGenericContext(new string[0], _genericParamInstanceMap.Values.ToArray());
             Signature = _methodDef.DecodeSignature(provider, genericContext);
 
             SignatureString = GetSignature();
         }
 
+        /// <summary>
+        /// Initialize map of generic parameters names to the type in the instance
+        /// </summary>
         private void InitGenericInstances(GenericParameterHandleCollection genericParams, GenericElementTypes[] instanceArgs, uint[] tok)
         {
             if (instanceArgs.Length != genericParams.Count || tok.Length != genericParams.Count)
@@ -238,18 +297,21 @@ namespace R2RDump
 
             for (int i = 0; i < instanceArgs.Length; i++)
             {
-                string key = _mdReader.GetString(_mdReader.GetGenericParameter(genericParams.ElementAt(i)).Name);
-                string name = instanceArgs[i].ToString();
+                string key = _mdReader.GetString(_mdReader.GetGenericParameter(genericParams.ElementAt(i)).Name); // name of the generic param, eg. "T"
+                string type = instanceArgs[i].ToString(); // type of the generic param instance
                 if (instanceArgs[i] == GenericElementTypes.ValueType)
                 {
                     var t = _mdReader.GetTypeDefinition(MetadataTokens.TypeDefinitionHandle((int)tok[i]));
-                    name = _mdReader.GetString(t.Name);
+                    type = _mdReader.GetString(t.Name); // name of the struct
 
                 }
-                _genericParamInstanceMap[key] = name;
+                _genericParamInstanceMap[key] = type;
             }
         }
 
+        /// <summary>
+        /// Returns a string with format DeclaringType.Name<GenericTypes,...>(ArgTypes,...)
+        /// </summary>
         private string GetSignature()
         {
             StringBuilder sb = new StringBuilder();
@@ -296,6 +358,14 @@ namespace R2RDump
             sb.AppendLine($"Rid: {Rid}");
             sb.AppendLine($"EntryPointRuntimeFunctionId: {EntryPointRuntimeFunctionId}");
             sb.AppendLine($"Number of RuntimeFunctions: {RuntimeFunctions.Count}");
+            if (Fixups != null)
+            {
+                sb.AppendLine($"Number of fixups: {Fixups.Count()}");
+                foreach (FixupCell cell in Fixups)
+                {
+                    sb.AppendLine($"    TableIndex {cell.TableIndex}, Offset {cell.CellOffset:X4}");
+                }
+            }
 
             return sb.ToString();
         }

@@ -639,6 +639,19 @@ regMaskTP Compiler::compNoGCHelperCallKillSet(CorInfoHelpFunc helper)
 
     switch (helper)
     {
+        case CORINFO_HELP_ASSIGN_BYREF:
+#if defined(_TARGET_X86_)
+            // This helper only trashes ECX.
+            return RBM_ECX;
+#elif defined(_TARGET_AMD64_)
+            // This uses and defs RDI and RSI.
+            return RBM_CALLEE_TRASH_NOGC & ~(RBM_RDI | RBM_RSI);
+#elif defined(_TARGET_ARMARCH_)
+            return RBM_CALLEE_GCTRASH_WRITEBARRIER_BYREF;
+#else
+            assert(!"unknown arch");
+#endif
+
 #if defined(_TARGET_XARCH_)
         case CORINFO_HELP_PROF_FCN_ENTER:
             return RBM_PROFILER_ENTER_TRASH;
@@ -650,16 +663,7 @@ regMaskTP Compiler::compNoGCHelperCallKillSet(CorInfoHelpFunc helper)
             return RBM_PROFILER_TAILCALL_TRASH;
 #endif // defined(_TARGET_XARCH_)
 
-#if defined(_TARGET_X86_)
-        case CORINFO_HELP_ASSIGN_BYREF:
-            // This helper only trashes ECX.
-            return RBM_ECX;
-#endif // defined(_TARGET_X86_)
-
 #if defined(_TARGET_ARMARCH_)
-        case CORINFO_HELP_ASSIGN_BYREF:
-            return RBM_CALLEE_GCTRASH_WRITEBARRIER_BYREF;
-
         case CORINFO_HELP_ASSIGN_REF:
         case CORINFO_HELP_CHECKED_ASSIGN_REF:
             return RBM_CALLEE_GCTRASH_WRITEBARRIER;
@@ -1023,7 +1027,7 @@ void CodeGen::genDefineTempLabel(BasicBlock* label)
 #ifdef DEBUG
     if (compiler->opts.dspCode)
     {
-        printf("\n      L_M%03u_BB%02u:\n", Compiler::s_compMethodsCount, label->bbNum);
+        printf("\n      L_M%03u_" FMT_BB ":\n", Compiler::s_compMethodsCount, label->bbNum);
     }
 #endif
 
@@ -1038,7 +1042,7 @@ void CodeGen::genDefineTempLabel(BasicBlock* label)
  *  return value) are used at this point.
  */
 
-void CodeGen::genAdjustSP(ssize_t delta)
+void CodeGen::genAdjustSP(target_ssize_t delta)
 {
 #if defined(_TARGET_X86_) && !defined(UNIX_X86_ABI)
     if (delta == sizeof(int))
@@ -1138,8 +1142,7 @@ unsigned CodeGenInterface::InferStructOpSizeAlign(GenTree* op, unsigned* alignme
     {
         CORINFO_CLASS_HANDLE clsHnd = op->AsObj()->gtClass;
         opSize                      = compiler->info.compCompHnd->getClassSize(clsHnd);
-        alignment =
-            (unsigned)roundUp(compiler->info.compCompHnd->getClassAlignmentRequirement(clsHnd), TARGET_POINTER_SIZE);
+        alignment = roundUp(compiler->info.compCompHnd->getClassAlignmentRequirement(clsHnd), TARGET_POINTER_SIZE);
     }
     else if (op->gtOper == GT_LCL_VAR)
     {
@@ -1167,9 +1170,9 @@ unsigned CodeGenInterface::InferStructOpSizeAlign(GenTree* op, unsigned* alignme
             if (op2->IsIconHandle(GTF_ICON_CLASS_HDL))
             {
                 CORINFO_CLASS_HANDLE clsHnd = (CORINFO_CLASS_HANDLE)op2->gtIntCon.gtIconVal;
-                opSize    = (unsigned)roundUp(compiler->info.compCompHnd->getClassSize(clsHnd), TARGET_POINTER_SIZE);
-                alignment = (unsigned)roundUp(compiler->info.compCompHnd->getClassAlignmentRequirement(clsHnd),
-                                              TARGET_POINTER_SIZE);
+                opSize = roundUp(compiler->info.compCompHnd->getClassSize(clsHnd), TARGET_POINTER_SIZE);
+                alignment =
+                    roundUp(compiler->info.compCompHnd->getClassAlignmentRequirement(clsHnd), TARGET_POINTER_SIZE);
             }
             else
             {
@@ -1204,9 +1207,8 @@ unsigned CodeGenInterface::InferStructOpSizeAlign(GenTree* op, unsigned* alignme
     {
         CORINFO_CLASS_HANDLE clsHnd = op->gtArgPlace.gtArgPlaceClsHnd;
         assert(clsHnd != 0);
-        opSize = (unsigned)roundUp(compiler->info.compCompHnd->getClassSize(clsHnd), TARGET_POINTER_SIZE);
-        alignment =
-            (unsigned)roundUp(compiler->info.compCompHnd->getClassAlignmentRequirement(clsHnd), TARGET_POINTER_SIZE);
+        opSize    = roundUp(compiler->info.compCompHnd->getClassSize(clsHnd), TARGET_POINTER_SIZE);
+        alignment = roundUp(compiler->info.compCompHnd->getClassAlignmentRequirement(clsHnd), TARGET_POINTER_SIZE);
     }
     else
     {
@@ -2146,7 +2148,7 @@ void CodeGen::genInsertNopForUnwinder(BasicBlock* block)
 #ifdef DEBUG
         if (compiler->verbose)
         {
-            printf("\nEmitting finally target NOP predecessor for BB%02u\n", block->bbNum);
+            printf("\nEmitting finally target NOP predecessor for " FMT_BB "\n", block->bbNum);
         }
 #endif
         // Create a label that we'll use for computing the start of an EH region, if this block is
@@ -2434,16 +2436,20 @@ void CodeGen::genGenerateCode(void** codePtr, ULONG* nativeSizeOfCode)
 #endif
 
 #if EMIT_TRACK_STACK_DEPTH
-    /* Check our max stack level. Needed for fgAddCodeRef().
-       We need to relax the assert as our estimation won't include code-gen
-       stack changes (which we know don't affect fgAddCodeRef()) */
+    // Check our max stack level. Needed for fgAddCodeRef().
+    // We need to relax the assert as our estimation won't include code-gen
+    // stack changes (which we know don't affect fgAddCodeRef()).
+    // NOTE: after emitEndCodeGen (including here), emitMaxStackDepth is a
+    // count of DWORD-sized arguments, NOT argument size in bytes.
     {
         unsigned maxAllowedStackDepth = compiler->fgPtrArgCntMax +    // Max number of pointer-sized stack arguments.
                                         compiler->compHndBBtabCount + // Return address for locally-called finallys
                                         genTypeStSz(TYP_LONG) +       // longs/doubles may be transferred via stack, etc
                                         (compiler->compTailCallUsed ? 4 : 0); // CORINFO_HELP_TAILCALL args
 #if defined(UNIX_X86_ABI)
-        maxAllowedStackDepth += maxNestedAlignment;
+        // Convert maxNestedAlignment to DWORD count before adding to maxAllowedStackDepth.
+        assert(maxNestedAlignment % sizeof(int) == 0);
+        maxAllowedStackDepth += maxNestedAlignment / sizeof(int);
 #endif
         noway_assert(getEmitter()->emitMaxStackDepth <= maxAllowedStackDepth);
     }
@@ -3668,7 +3674,12 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
             {
                 if (varDsc->lvTrackedNonStruct())
                 {
-                    noway_assert(!VarSetOps::IsMember(compiler, compiler->fgFirstBB->bbLiveIn, varDsc->lvVarIndex));
+                    // We may now see some tracked locals with zero refs.
+                    // See Lowering::DoPhase. Tolerate these.
+                    if (varDsc->lvRefCnt() > 0)
+                    {
+                        noway_assert(!VarSetOps::IsMember(compiler, compiler->fgFirstBB->bbLiveIn, varDsc->lvVarIndex));
+                    }
                 }
                 else
                 {
@@ -3678,7 +3689,7 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
                     // For LSRA, it may not be in regArgMaskLive if it has a zero
                     // refcnt.  This is in contrast with the non-LSRA case in which all
                     // non-tracked args are assumed live on entry.
-                    noway_assert((varDsc->lvRefCnt == 0) || (varDsc->lvType == TYP_STRUCT) ||
+                    noway_assert((varDsc->lvRefCnt() == 0) || (varDsc->lvType == TYP_STRUCT) ||
                                  (varDsc->lvAddrExposed && compiler->info.compIsVarArgs) ||
                                  (varDsc->lvAddrExposed && compiler->opts.compUseSoftFP));
 #endif // !_TARGET_X86_
@@ -3979,7 +3990,7 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
 
         if (!varDsc->lvOnFrame)
         {
-            noway_assert(varDsc->lvRefCnt == 0);
+            noway_assert(varDsc->lvRefCnt() == 0);
         }
         else
         {
@@ -4638,7 +4649,7 @@ void CodeGen::genCheckUseBlockInit()
 
         if (!varDsc->lvIsInReg() && !varDsc->lvOnFrame)
         {
-            noway_assert(varDsc->lvRefCnt == 0);
+            noway_assert(varDsc->lvRefCnt() == 0);
             continue;
         }
 
@@ -4701,7 +4712,7 @@ void CodeGen::genCheckUseBlockInit()
                             {
                                 // Var is on the stack at entry.
                                 initStkLclCnt +=
-                                    (unsigned)roundUp(compiler->lvaLclSize(varNum), TARGET_POINTER_SIZE) / sizeof(int);
+                                    roundUp(compiler->lvaLclSize(varNum), TARGET_POINTER_SIZE) / sizeof(int);
                             }
                         }
                         else
@@ -4732,7 +4743,7 @@ void CodeGen::genCheckUseBlockInit()
             {
                 varDsc->lvMustInit = true;
 
-                initStkLclCnt += (unsigned)roundUp(compiler->lvaLclSize(varNum), TARGET_POINTER_SIZE) / sizeof(int);
+                initStkLclCnt += roundUp(compiler->lvaLclSize(varNum), TARGET_POINTER_SIZE) / sizeof(int);
             }
 
             continue;
@@ -5181,7 +5192,7 @@ void          CodeGen::genPushCalleeSavedRegisters()
             // If compiler->lvaOutgoingArgSpaceSize is not aligned, we need to align the SP adjustment.
             assert(remainingFrameSz > (int)compiler->lvaOutgoingArgSpaceSize);
             int spAdjustment2Unaligned = remainingFrameSz - compiler->lvaOutgoingArgSpaceSize;
-            int spAdjustment2          = (int)roundUp((size_t)spAdjustment2Unaligned, STACK_ALIGN);
+            int spAdjustment2          = (int)roundUp((unsigned)spAdjustment2Unaligned, STACK_ALIGN);
             int alignmentAdjustment2   = spAdjustment2 - spAdjustment2Unaligned;
             assert((alignmentAdjustment2 == 0) || (alignmentAdjustment2 == 8));
 
@@ -5255,7 +5266,7 @@ void CodeGen::genAllocLclFrame(unsigned frameSize, regNumber initReg, bool* pIni
         return;
     }
 
-    const size_t pageSize = compiler->eeGetPageSize();
+    const target_size_t pageSize = compiler->eeGetPageSize();
 
 #ifdef _TARGET_ARM_
     assert(!compiler->info.compPublishStubParam || (REG_SECRET_STUB_PARAM != initReg));
@@ -5684,12 +5695,12 @@ void CodeGen::genMov32RelocatableDataLabel(unsigned value, regNumber reg)
  *
  * Move of relocatable immediate to register
  */
-void CodeGen::genMov32RelocatableImmediate(emitAttr size, size_t value, regNumber reg)
+void CodeGen::genMov32RelocatableImmediate(emitAttr size, BYTE* addr, regNumber reg)
 {
     _ASSERTE(EA_IS_RELOC(size));
 
-    getEmitter()->emitIns_R_I(INS_movw, size, reg, value);
-    getEmitter()->emitIns_R_I(INS_movt, size, reg, value);
+    getEmitter()->emitIns_MovRelocatableImmediate(INS_movw, size, reg, addr);
+    getEmitter()->emitIns_MovRelocatableImmediate(INS_movt, size, reg, addr);
 
     if (compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_RELATIVE_CODE_RELOCS))
     {
@@ -5975,7 +5986,7 @@ void CodeGen::genPopCalleeSavedRegistersAndFreeLclFrame(bool jmpEpilog)
                 // If compiler->lvaOutgoingArgSpaceSize is not aligned, we need to align the SP adjustment.
                 assert(remainingFrameSz > (int)compiler->lvaOutgoingArgSpaceSize);
                 int spAdjustment2Unaligned = remainingFrameSz - compiler->lvaOutgoingArgSpaceSize;
-                int spAdjustment2          = (int)roundUp((size_t)spAdjustment2Unaligned, STACK_ALIGN);
+                int spAdjustment2          = (int)roundUp((unsigned)spAdjustment2Unaligned, STACK_ALIGN);
                 int alignmentAdjustment2   = spAdjustment2 - spAdjustment2Unaligned;
                 assert((alignmentAdjustment2 == 0) || (alignmentAdjustment2 == REGSIZE_BYTES));
 
@@ -6337,7 +6348,7 @@ void CodeGen::genZeroInitFrame(int untrLclHi, int untrLclLo, regNumber initReg, 
 #if defined(_TARGET_ARM_)
         rZero1 = genGetZeroReg(initReg, pInitRegZeroed);
         instGen_Set_Reg_To_Zero(EA_PTRSIZE, rZero2);
-        ssize_t stmImm = (ssize_t)(genRegMask(rZero1) | genRegMask(rZero2));
+        target_ssize_t stmImm = (target_ssize_t)(genRegMask(rZero1) | genRegMask(rZero2));
 #endif // _TARGET_ARM_
 
         if (!useLoop)
@@ -6516,7 +6527,7 @@ void CodeGen::genZeroInitFrame(int untrLclHi, int untrLclLo, regNumber initReg, 
                 regNumber zeroReg = genGetZeroReg(initReg, pInitRegZeroed);
 
                 // zero out the whole thing rounded up to a single stack slot size
-                unsigned lclSize = (unsigned)roundUp(compiler->lvaLclSize(varNum), sizeof(int));
+                unsigned lclSize = roundUp(compiler->lvaLclSize(varNum), (unsigned)sizeof(int));
                 unsigned i;
                 for (i = 0; i + REGSIZE_BYTES <= lclSize; i += REGSIZE_BYTES)
                 {
@@ -6919,8 +6930,13 @@ void CodeGen::genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
     unsigned saveStackLvl2 = genStackLevel;
 
 #if defined(_TARGET_X86_)
-    // Important note: when you change enter probe layout, you must also update SKIP_ENTER_PROF_CALLBACK()
-    // for x86 stack unwinding
+// Important note: when you change enter probe layout, you must also update SKIP_ENTER_PROF_CALLBACK()
+// for x86 stack unwinding
+
+#if defined(UNIX_X86_ABI)
+    // Manually align the stack to be 16-byte aligned. This is similar to CodeGen::genAlignStackBeforeCall()
+    getEmitter()->emitIns_R_I(INS_sub, EA_4BYTE, REG_SPBASE, 0xC);
+#endif // UNIX_X86_ABI
 
     // Push the profilerHandle
     if (compiler->compProfilerMethHndIndirected)
@@ -6931,6 +6947,7 @@ void CodeGen::genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
     {
         inst_IV(INS_push, (size_t)compiler->compProfilerMethHnd);
     }
+
 #elif defined(_TARGET_ARM_)
     // On Arm arguments are prespilled on stack, which frees r0-r3.
     // For generating Enter callout we would need two registers and one of them has to be r0 to pass profiler handle.
@@ -6965,14 +6982,14 @@ void CodeGen::genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
                       EA_UNKNOWN); // retSize
 
 #if defined(_TARGET_X86_)
-    //
-    // Adjust the number of stack slots used by this managed method if necessary.
-    //
-    if (compiler->fgPtrArgCntMax < 1)
-    {
-        JITDUMP("Upping fgPtrArgCntMax from %d to 1\n", compiler->fgPtrArgCntMax);
-        compiler->fgPtrArgCntMax = 1;
-    }
+    // Check that we have place for the push.
+    assert(compiler->fgPtrArgCntMax >= 1);
+
+#if defined(UNIX_X86_ABI)
+    // Restoring alignment manually. This is similar to CodeGen::genRemoveAlignmentAfterCall
+    getEmitter()->emitIns_R_I(INS_add, EA_4BYTE, REG_SPBASE, 0x10);
+#endif // UNIX_X86_ABI
+
 #elif defined(_TARGET_ARM_)
     if (initReg == argReg)
     {
@@ -7147,6 +7164,13 @@ void CodeGen::genProfilingLeaveCallback(unsigned helper /*= CORINFO_HELP_PROF_FC
 
 #elif defined(_TARGET_X86_)
 
+#if defined(UNIX_X86_ABI)
+    // Manually align the stack to be 16-byte aligned. This is similar to CodeGen::genAlignStackBeforeCall()
+    getEmitter()->emitIns_R_I(INS_sub, EA_4BYTE, REG_SPBASE, 0xC);
+    AddStackLevel(0xC);
+    AddNestedAlignment(0xC);
+#endif // UNIX_X86_ABI
+
     //
     // Push the profilerHandle
     //
@@ -7161,18 +7185,22 @@ void CodeGen::genProfilingLeaveCallback(unsigned helper /*= CORINFO_HELP_PROF_FC
     }
     genSinglePush();
 
-    genEmitHelperCall(helper,
-                      sizeof(int) * 1, // argSize
-                      EA_UNKNOWN);     // retSize
+#if defined(UNIX_X86_ABI)
+    int argSize = -REGSIZE_BYTES; // negative means caller-pop (cdecl)
+#else
+    int argSize = REGSIZE_BYTES;
+#endif
+    genEmitHelperCall(helper, argSize, EA_UNKNOWN /* retSize */);
 
-    //
-    // Adjust the number of stack slots used by this managed method if necessary.
-    //
-    if (compiler->fgPtrArgCntMax < 1)
-    {
-        JITDUMP("Upping fgPtrArgCntMax from %d to 1\n", compiler->fgPtrArgCntMax);
-        compiler->fgPtrArgCntMax = 1;
-    }
+    // Check that we have place for the push.
+    assert(compiler->fgPtrArgCntMax >= 1);
+
+#if defined(UNIX_X86_ABI)
+    // Restoring alignment manually. This is similar to CodeGen::genRemoveAlignmentAfterCall
+    getEmitter()->emitIns_R_I(INS_add, EA_4BYTE, REG_SPBASE, 0x10);
+    SubtractStackLevel(0x10);
+    SubtractNestedAlignment(0xC);
+#endif // UNIX_X86_ABI
 
 #elif defined(_TARGET_ARM_)
     //
@@ -7391,7 +7419,7 @@ void CodeGen::genReserveProlog(BasicBlock* block)
 {
     assert(block != nullptr);
 
-    JITDUMP("Reserving prolog IG for block BB%02u\n", block->bbNum);
+    JITDUMP("Reserving prolog IG for block " FMT_BB "\n", block->bbNum);
 
     /* Nothing is live on entry to the prolog */
 
@@ -7434,7 +7462,7 @@ void CodeGen::genReserveEpilog(BasicBlock* block)
         }
     }
 
-    JITDUMP("Reserving epilog IG for block BB%02u\n", block->bbNum);
+    JITDUMP("Reserving epilog IG for block " FMT_BB "\n", block->bbNum);
 
     assert(block != nullptr);
     const VARSET_TP& gcrefVarsArg(getEmitter()->emitThisGCrefVars);
@@ -7468,7 +7496,7 @@ void CodeGen::genReserveFuncletProlog(BasicBlock* block)
     noway_assert((gcInfo.gcRegGCrefSetCur & RBM_EXCEPTION_OBJECT) == gcInfo.gcRegGCrefSetCur);
     noway_assert(gcInfo.gcRegByrefSetCur == 0);
 
-    JITDUMP("Reserving funclet prolog IG for block BB%02u\n", block->bbNum);
+    JITDUMP("Reserving funclet prolog IG for block " FMT_BB "\n", block->bbNum);
 
     getEmitter()->emitCreatePlaceholderIG(IGPT_FUNCLET_PROLOG, block, gcInfo.gcVarPtrSetCur, gcInfo.gcRegGCrefSetCur,
                                           gcInfo.gcRegByrefSetCur, false);
@@ -7483,7 +7511,7 @@ void CodeGen::genReserveFuncletEpilog(BasicBlock* block)
 {
     assert(block != nullptr);
 
-    JITDUMP("Reserving funclet epilog IG for block BB%02u\n", block->bbNum);
+    JITDUMP("Reserving funclet epilog IG for block " FMT_BB "\n", block->bbNum);
 
     bool last = (block->bbNext == nullptr);
     getEmitter()->emitCreatePlaceholderIG(IGPT_FUNCLET_EPILOG, block, gcInfo.gcVarPtrSetCur, gcInfo.gcRegGCrefSetCur,
@@ -7876,7 +7904,7 @@ void CodeGen::genFnProlog()
 
         if (!varDsc->lvIsInReg() && !varDsc->lvOnFrame)
         {
-            noway_assert(varDsc->lvRefCnt == 0);
+            noway_assert(varDsc->lvRefCnt() == 0);
             continue;
         }
 
@@ -8492,7 +8520,7 @@ void CodeGen::genFnProlog()
     // (our argument pointer register has a refcount > 0).
     unsigned argsStartVar = compiler->lvaVarargsBaseOfStkArgs;
 
-    if (compiler->info.compIsVarArgs && compiler->lvaTable[argsStartVar].lvRefCnt > 0)
+    if (compiler->info.compIsVarArgs && compiler->lvaTable[argsStartVar].lvRefCnt() > 0)
     {
         varDsc = &compiler->lvaTable[argsStartVar];
 
@@ -8730,14 +8758,14 @@ void CodeGen::genFnEpilog(BasicBlock* block)
             assert(methHnd != nullptr);
             assert(addrInfo.addr != nullptr);
 
-#ifdef _TARGET_ARM_
+#ifdef _TARGET_ARMARCH_
             emitter::EmitCallType callType;
             void*                 addr;
             regNumber             indCallReg;
             switch (addrInfo.accessType)
             {
                 case IAT_VALUE:
-                    if (arm_Valid_Imm_For_BL((ssize_t)addrInfo.addr))
+                    if (validImmForBL((ssize_t)addrInfo.addr))
                     {
                         // Simple direct call
                         callType   = emitter::EC_FUNC_TOKEN;
@@ -8754,7 +8782,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
                     // Load the address into a register, load indirect and call  through a register
                     // We have to use R12 since we assume the argument registers are in use
                     callType   = emitter::EC_INDIR_R;
-                    indCallReg = REG_R12;
+                    indCallReg = REG_INDIRECT_CALL_TARGET_REG;
                     addr       = NULL;
                     instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, indCallReg, (ssize_t)addrInfo.addr);
                     if (addrInfo.accessType == IAT_PVALUE)
@@ -8794,6 +8822,9 @@ void CodeGen::genFnEpilog(BasicBlock* block)
                                        addr,
                                        0,          // argSize
                                        EA_UNKNOWN, // retSize
+#if defined(_TARGET_ARM64_)
+                                       EA_UNKNOWN, // secondRetSize
+#endif
                                        gcInfo.gcVarPtrSetCur,
                                        gcInfo.gcRegGCrefSetCur,
                                        gcInfo.gcRegByrefSetCur,
@@ -8805,35 +8836,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
                                        true);         // isJump
             // clang-format on
             CLANG_FORMAT_COMMENT_ANCHOR;
-
-#else // _TARGET_ARM64_
-            if (addrInfo.accessType != IAT_VALUE)
-            {
-                NYI_ARM64("Unsupported JMP indirection");
-            }
-
-            emitter::EmitCallType callType = emitter::EC_FUNC_TOKEN;
-
-            // Simply emit a jump to the methodHnd. This is similar to a call so we can use
-            // the same descriptor with some minor adjustments.
-
-            // clang-format off
-            getEmitter()->emitIns_Call(callType,
-                                       methHnd,
-                                       INDEBUG_LDISASM_COMMA(nullptr)
-                                       addrInfo.addr,
-                                       0,          // argSize
-                                       EA_UNKNOWN, // retSize
-                                       EA_UNKNOWN, // secondRetSize
-                                       gcInfo.gcVarPtrSetCur,
-                                       gcInfo.gcRegGCrefSetCur,
-                                       gcInfo.gcRegByrefSetCur,
-                                       BAD_IL_OFFSET, REG_NA, REG_NA, 0, 0, /* iloffset, ireg, xreg, xmul, disp */
-                                       true);                               /* isJump */
-            // clang-format on
-            CLANG_FORMAT_COMMENT_ANCHOR;
-
-#endif // _TARGET_ARM64_
+#endif //_TARGET_ARMARCH_
         }
 #if FEATURE_FASTTAILCALL
         else

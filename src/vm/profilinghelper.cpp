@@ -460,9 +460,9 @@ void ProfilingAPIUtility::LogProfInfo(int iStringResourceID, ...)
 // InitializeProfiling() below solely for the debug-only, test-only code to allow
 // enter/leave/tailcall to be turned on at startup without a profiler. See
 // code:ProfControlBlock#TestOnlyELT
-EXTERN_C void __stdcall ProfileEnterNaked(UINT_PTR clientData);
-EXTERN_C void __stdcall ProfileLeaveNaked(UINT_PTR clientData);
-EXTERN_C void __stdcall ProfileTailcallNaked(UINT_PTR clientData);
+EXTERN_C void STDMETHODCALLTYPE ProfileEnterNaked(UINT_PTR clientData);
+EXTERN_C void STDMETHODCALLTYPE ProfileLeaveNaked(UINT_PTR clientData);
+EXTERN_C void STDMETHODCALLTYPE ProfileTailcallNaked(UINT_PTR clientData);
 #endif //PROF_TEST_ONLY_FORCE_ELT
 
 // ----------------------------------------------------------------------------
@@ -1048,14 +1048,6 @@ HRESULT ProfilingAPIUtility::LoadProfiler(
         }
 
         _ASSERTE(profilerCompatibilityFlag == kEnableV2Profiler);
-
-        // To prevent V2 profilers from AV, once a V2 profiler is already loaded by a V2 rutnime in the process, 
-        // V4 runtime will not try to load the V2 profiler again.
-        if (IsV2RuntimeLoaded())
-        {
-            LogProfInfo(IDS_PROF_V2PROFILER_ALREADY_LOADED, wszClsid);
-            return S_OK;
-        }
 
         LOG((LF_CORPROF, LL_INFO10, "**PROF: COMPlus_ProfAPI_ProfilerCompatibilitySetting is set to EnableV2Profiler. "
              "The configured V2 profiler is going to be initialized.\n"));

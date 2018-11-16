@@ -1241,19 +1241,21 @@ protected:
 
     struct instrDescCns : instrDesc // large const
     {
-        ssize_t idcCnsVal;
+        target_ssize_t idcCnsVal;
     };
 
     struct instrDescDsp : instrDesc // large displacement
     {
-        ssize_t iddDspVal;
+        target_ssize_t iddDspVal;
     };
 
     struct instrDescCnsDsp : instrDesc // large cons + disp
     {
-        ssize_t iddcCnsVal;
-        int     iddcDspVal;
+        target_ssize_t iddcCnsVal;
+        int            iddcDspVal;
     };
+
+#ifdef _TARGET_XARCH_
 
     struct instrDescAmd : instrDesc // large addrmode disp
     {
@@ -1265,6 +1267,8 @@ protected:
         ssize_t idacCnsVal;
         ssize_t idacAmdVal;
     };
+
+#endif // _TARGET_XARCH_
 
     struct instrDescCGCA : instrDesc // call with ...
     {
@@ -1297,12 +1301,16 @@ protected:
 #endif                                     // MULTIREG_HAS_SECOND_GC_RET
     };
 
-    struct instrDescArmFP : instrDesc
+#ifdef _TARGET_ARM_
+
+    struct instrDescReloc : instrDesc
     {
-        regNumber r1;
-        regNumber r2;
-        regNumber r3;
+        BYTE* idrRelocVal;
     };
+
+    BYTE* emitGetInsRelocValue(instrDesc* id);
+
+#endif // _TARGET_ARM_
 
     insUpdateModes emitInsUpdateMode(instruction ins);
     insFormat emitInsModeFormat(instruction ins, insFormat base);
@@ -1315,17 +1323,21 @@ protected:
     size_t emitGetInstrDescSize(const instrDesc* id);
     size_t emitGetInstrDescSizeSC(const instrDesc* id);
 
+#ifdef _TARGET_XARCH_
+
     ssize_t emitGetInsCns(instrDesc* id);
     ssize_t emitGetInsDsp(instrDesc* id);
     ssize_t emitGetInsAmd(instrDesc* id);
-    ssize_t emitGetInsCnsDsp(instrDesc* id, ssize_t* dspPtr);
-    ssize_t emitGetInsSC(instrDesc* id);
+
     ssize_t emitGetInsCIdisp(instrDesc* id);
     unsigned emitGetInsCIargs(instrDesc* id);
 
     // Return the argument count for a direct call "id".
     int emitGetInsCDinfo(instrDesc* id);
 
+#endif // _TARGET_XARCH_
+
+    target_ssize_t emitGetInsSC(instrDesc* id);
     unsigned emitInsCount;
 
 /************************************************************************/
@@ -1791,6 +1803,8 @@ private:
         return (instrDescCnsDsp*)emitAllocInstr(sizeof(instrDescCnsDsp), attr);
     }
 
+#ifdef _TARGET_XARCH_
+
     instrDescAmd* emitAllocInstrAmd(emitAttr attr)
     {
         return (instrDescAmd*)emitAllocInstr(sizeof(instrDescAmd), attr);
@@ -1801,6 +1815,8 @@ private:
         return (instrDescCnsAmd*)emitAllocInstr(sizeof(instrDescCnsAmd), attr);
     }
 
+#endif // _TARGET_XARCH_
+
     instrDescCGCA* emitAllocInstrCGCA(emitAttr attr)
     {
         return (instrDescCGCA*)emitAllocInstr(sizeof(instrDescCGCA), attr);
@@ -1808,10 +1824,13 @@ private:
 
     instrDesc* emitNewInstrSmall(emitAttr attr);
     instrDesc* emitNewInstr(emitAttr attr = EA_4BYTE);
-    instrDesc* emitNewInstrSC(emitAttr attr, ssize_t cns);
-    instrDesc* emitNewInstrCns(emitAttr attr, ssize_t cns);
-    instrDesc* emitNewInstrDsp(emitAttr attr, ssize_t dsp);
-    instrDesc* emitNewInstrCnsDsp(emitAttr attr, ssize_t cns, int dsp);
+    instrDesc* emitNewInstrSC(emitAttr attr, target_ssize_t cns);
+    instrDesc* emitNewInstrCns(emitAttr attr, target_ssize_t cns);
+    instrDesc* emitNewInstrDsp(emitAttr attr, target_ssize_t dsp);
+    instrDesc* emitNewInstrCnsDsp(emitAttr attr, target_ssize_t cns, int dsp);
+#ifdef _TARGET_ARM_
+    instrDesc* emitNewInstrReloc(emitAttr attr, BYTE* addr);
+#endif // _TARGET_ARM_
     instrDescJmp* emitNewInstrJmp();
 
 #if !defined(_TARGET_ARM64_)
@@ -2282,7 +2301,7 @@ inline emitter::instrDescLbl* emitter::emitNewInstrLbl()
 }
 #endif // !_TARGET_ARM64_
 
-inline emitter::instrDesc* emitter::emitNewInstrDsp(emitAttr attr, ssize_t dsp)
+inline emitter::instrDesc* emitter::emitNewInstrDsp(emitAttr attr, target_ssize_t dsp)
 {
     if (dsp == 0)
     {
@@ -2317,7 +2336,7 @@ inline emitter::instrDesc* emitter::emitNewInstrDsp(emitAttr attr, ssize_t dsp)
  *  Note that this very similar to emitter::emitNewInstrSC(), except it never
  *  allocates a small descriptor.
  */
-inline emitter::instrDesc* emitter::emitNewInstrCns(emitAttr attr, ssize_t cns)
+inline emitter::instrDesc* emitter::emitNewInstrCns(emitAttr attr, target_ssize_t cns)
 {
     if (instrDesc::fitsInSmallCns(cns))
     {
@@ -2380,7 +2399,7 @@ inline size_t emitter::emitGetInstrDescSize(const instrDesc* id)
  *  emitNewInstrCns() always allocates at least sizeof(instrDesc).
  */
 
-inline emitter::instrDesc* emitter::emitNewInstrSC(emitAttr attr, ssize_t cns)
+inline emitter::instrDesc* emitter::emitNewInstrSC(emitAttr attr, target_ssize_t cns)
 {
     instrDesc* id;
 
@@ -2423,6 +2442,24 @@ inline size_t emitter::emitGetInstrDescSizeSC(const instrDesc* id)
     }
 }
 
+#ifdef _TARGET_ARM_
+
+inline emitter::instrDesc* emitter::emitNewInstrReloc(emitAttr attr, BYTE* addr)
+{
+    assert(EA_IS_RELOC(attr));
+
+    instrDescReloc* id = (instrDescReloc*)emitAllocInstr(sizeof(instrDescReloc), attr);
+    assert(id->idIsReloc());
+
+    id->idrRelocVal = addr;
+
+    return id;
+}
+
+#endif // _TARGET_ARM_
+
+#ifdef _TARGET_XARCH_
+
 /*****************************************************************************
  *
  *  The following helpers should be used to access the various values that
@@ -2447,36 +2484,6 @@ inline ssize_t emitter::emitGetInsDsp(instrDesc* id)
     return 0;
 }
 
-inline ssize_t emitter::emitGetInsCnsDsp(instrDesc* id, ssize_t* dspPtr)
-{
-    if (id->idIsLargeCns())
-    {
-        if (id->idIsLargeDsp())
-        {
-            *dspPtr = ((instrDescCnsDsp*)id)->iddcDspVal;
-            return ((instrDescCnsDsp*)id)->iddcCnsVal;
-        }
-        else
-        {
-            *dspPtr = 0;
-            return ((instrDescCns*)id)->idcCnsVal;
-        }
-    }
-    else
-    {
-        if (id->idIsLargeDsp())
-        {
-            *dspPtr = ((instrDescDsp*)id)->iddDspVal;
-            return id->idSmallCns();
-        }
-        else
-        {
-            *dspPtr = 0;
-            return id->idSmallCns();
-        }
-    }
-}
-
 /*****************************************************************************
  *
  *  Get hold of the argument count for an indirect call.
@@ -2498,6 +2505,8 @@ inline unsigned emitter::emitGetInsCIargs(instrDesc* id)
         return (unsigned)cns;
     }
 }
+
+#endif // _TARGET_XARCH_
 
 /*****************************************************************************
  *

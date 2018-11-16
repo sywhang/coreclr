@@ -12,19 +12,27 @@ using System.Xml.Serialization;
 
 namespace R2RDump
 {
-    abstract class Dumper
+    public abstract class Dumper
     {
         internal R2RReader _r2r;
+        internal TextWriter _writer;
+
         internal bool _raw;
         internal bool _header;
         internal bool _disasm;
-        internal IntPtr _disassembler;
+        internal Disassembler _disassembler;
         internal bool _unwind;
         internal bool _gc;
         internal bool _sectionContents;
-        internal TextWriter _writer;
 
+        /// <summary>
+        /// Run right before printing output
+        /// </summary>
         abstract internal void Begin();
+
+        /// <summary>
+        /// Run right after printing output
+        /// </summary>
         abstract internal void End();
         abstract internal void WriteDivider(string title);
         abstract internal void WriteSubDivider();
@@ -34,7 +42,7 @@ namespace R2RDump
         abstract internal void DumpAllMethods();
         abstract internal void DumpMethod(R2RMethod method, XmlNode parentNode = null);
         abstract internal void DumpRuntimeFunction(RuntimeFunction rtf, XmlNode parentNode = null);
-        abstract internal unsafe void DumpDisasm(IntPtr Disasm, RuntimeFunction rtf, int imageOffset, byte[] image, XmlNode parentNode = null);
+        abstract internal void DumpDisasm(RuntimeFunction rtf, int imageOffset, XmlNode parentNode = null);
         abstract internal void DumpBytes(int rva, uint size, XmlNode parentNode = null, string name = "Raw", bool convertToOffset = true);
         abstract internal void DumpSectionContents(R2RSection section, XmlNode parentNode = null);
         abstract internal XmlNode DumpQueryCount(string q, string title, int count);
@@ -42,6 +50,7 @@ namespace R2RDump
 
     class R2RDump
     {
+        // Options set by user specifying what to dump
         private bool _help;
         private IReadOnlyList<string> _inputFilenames = Array.Empty<string>();
         private string _outputFilename = null;
@@ -54,18 +63,21 @@ namespace R2RDump
         private IReadOnlyList<int> _runtimeFunctions = Array.Empty<int>();
         private IReadOnlyList<string> _sections = Array.Empty<string>();
         private bool _diff;
-        private IntPtr _disassembler;
         private bool _unwind;
         private bool _gc;
         private bool _sectionContents;
         private TextWriter _writer;
         private Dictionary<R2RSection.SectionType, bool> _selectedSections = new Dictionary<R2RSection.SectionType, bool>();
         private Dumper _dumper;
+        private bool _ignoreSensitive;
 
         private R2RDump()
         {
         }
 
+        /// <summary>
+        /// Parse commandline options
+        /// </summary>
         private ArgumentSyntax ParseCommandLine(string[] args)
         {
             bool verbose = false;
@@ -89,13 +101,13 @@ namespace R2RDump
                 syntax.DefineOption("unwind", ref _unwind, "Dump unwindInfo");
                 syntax.DefineOption("gc", ref _gc, "Dump gcInfo and slot table");
                 syntax.DefineOption("sc", ref _sectionContents, "Dump section contents");
-                syntax.DefineOption("v|verbose", ref verbose, "Dump raw bytes, disassembly, unwindInfo, gcInfo and section contents");
-                syntax.DefineOption("diff", ref _diff, "Compare two R2R images (not yet implemented)");
+                syntax.DefineOption("v|verbose", ref verbose, "Dump disassembly, unwindInfo, gcInfo and section contents");
+                syntax.DefineOption("diff", ref _diff, "Compare two R2R images");
+                syntax.DefineOption("ignoreSensitive", ref _ignoreSensitive, "Ignores sensitive properties in xml dump to avoid failing tests");
             });
 
             if (verbose)
             {
-                _raw = true;
                 _disasm = true;
                 _unwind = true;
                 _gc = true;
@@ -130,13 +142,17 @@ namespace R2RDump
             return int.TryParse(arg, out n);
         }
 
+        /// <summary>
+        /// Outputs a warning message
+        /// </summary>
+        /// <param name="warning">The warning message to output</param>
         public static void WriteWarning(string warning)
         {
             Console.WriteLine($"Warning: {warning}");
         }
 
         // <summary>
-        /// For each query in the list of queries, search for all methods matching the query by name, signature or id
+        /// For each query in the list of queries, dump all methods matching the query by name, signature or id
         /// </summary>
         /// <param name="r2r">Contains all the extracted info about the ReadyToRun image</param>
         /// <param name="title">The title to print, "R2R Methods by Query" or "R2R Methods by Keyword"</param>
@@ -160,7 +176,7 @@ namespace R2RDump
         }
 
         // <summary>
-        /// For each query in the list of queries, search for all sections by the name or value of the ReadyToRunSectionType enum
+        /// For each query in the list of queries, dump all sections by the name or value of the ReadyToRunSectionType enum
         /// </summary>
         /// <param name="r2r">Contains all the extracted info about the ReadyToRun image</param>
         /// <param name="queries">The names/values to search for</param>
@@ -182,7 +198,7 @@ namespace R2RDump
         }
 
         // <summary>
-        /// For each query in the list of queries, search for a runtime function by id. 
+        /// For each query in the list of queries, dump a runtime function by id. 
         /// The method containing the runtime function gets outputted, along with the single runtime function that was searched
         /// </summary>
         /// <param name="r2r">Contains all the extracted info about the ReadyToRun image</param>
@@ -216,7 +232,7 @@ namespace R2RDump
 
             _dumper.Begin();
 
-            if (_queries.Count == 0 && _keywords.Count == 0 && _runtimeFunctions.Count == 0 && _sections.Count == 0) //dump all sections and methods
+            if (_queries.Count == 0 && _keywords.Count == 0 && _runtimeFunctions.Count == 0 && _sections.Count == 0) //dump all sections and methods if no queries specified
             {
                 _dumper.WriteDivider("R2R Header");
                 _dumper.DumpHeader(true);
@@ -226,7 +242,7 @@ namespace R2RDump
                     _dumper.DumpAllMethods();
                 }
             }
-            else //dump queried sections/methods/runtimeFunctions
+            else //dump queried sections, methods and runtimeFunctions
             {
                 if (_header)
                 {
@@ -243,7 +259,7 @@ namespace R2RDump
         }
 
         /// <summary>
-        /// Returns true if the name/signature/id of <param>method</param> matches <param>query</param>
+        /// Returns true if the name, signature or id of <param>method</param> matches <param>query</param>
         /// </summary>
         /// <param name="exact">Specifies exact or partial match</param>
         /// <remarks>Case-insensitive and ignores whitespace</remarks>
@@ -368,44 +384,84 @@ namespace R2RDump
                 return 0;
             }
 
-            if (_inputFilenames.Count == 0)
-                throw new ArgumentException("Input filename must be specified (--in <file>)");
+            Disassembler disassembler = null;
 
             try
             {
+                if (_inputFilenames.Count == 0)
+                    throw new ArgumentException("Input filename must be specified (--in <file>)");
+
+                if (_diff && _inputFilenames.Count < 2)
+                    throw new ArgumentException("Need at least 2 input files in diff mode");
+
+                R2RReader previousReader = null;
+
                 foreach (string filename in _inputFilenames)
                 {
+                    // parse the ReadyToRun image
                     R2RReader r2r = new R2RReader(filename);
 
                     if (_disasm)
                     {
-                        _disassembler = CoreDisTools.GetDisasm(r2r.Machine);
+                        if (r2r.InputArchitectureSupported() && r2r.DisassemblerArchitectureSupported())
+                        {
+                            disassembler = new Disassembler(r2r.Image, r2r.Machine);
+                        }
+                        else
+                        {
+                            throw new ArgumentException($"The architecture of input file {filename} ({r2r.Machine.ToString()}) or the architecture of the disassembler tools ({System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString()}) is not supported.");
+                        }
                     }
 
                     if (_xml)
                     {
-                        _dumper = new XmlDumper(r2r, _writer, _raw, _header, _disasm, _disassembler, _unwind, _gc, _sectionContents);
+                        _dumper = new XmlDumper(_ignoreSensitive, r2r, _writer, _raw, _header, _disasm, disassembler, _unwind, _gc, _sectionContents);
                     }
                     else
                     {
-                        _dumper = new TextDumper(r2r, _writer, _raw, _header, _disasm, _disassembler, _unwind, _gc, _sectionContents);
+                        _dumper = new TextDumper(r2r, _writer, _raw, _header, _disasm, disassembler, _unwind, _gc, _sectionContents);
                     }
 
-                    Dump(r2r);
-
-                    if (_disasm)
+                    if (!_diff)
                     {
-                        CoreDisTools.FinishDisasm(_disassembler);
+                        // output the ReadyToRun info
+                        Dump(r2r);
                     }
+                    else if (previousReader != null)
+                    {
+                        new R2RDiff(previousReader, r2r, _writer).Run();
+                    }
+
+                    previousReader = r2r;
                 }
             }
             catch (Exception e)
             {
                 Console.WriteLine("Error: " + e.ToString());
+                if (e is ArgumentException)
+                {
+                    Console.WriteLine();
+                    Console.WriteLine(syntax.GetHelpText());
+                }
+                if (_xml)
+                {
+                    XmlDocument document = new XmlDocument();
+                    XmlNode node = document.CreateNode("element", "Error", "");
+                    node.InnerText = e.Message;
+                    document.AppendChild(node);
+                    if (_writer != null)
+                    {
+                        document.Save(_writer);
+                    }
+                }
                 return 1;
             }
             finally
             {
+                if (disassembler != null)
+                {
+                    disassembler.Dispose();
+                }
                 // close output stream
                 _writer.Close();
             }

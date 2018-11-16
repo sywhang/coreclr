@@ -164,8 +164,6 @@ void Rationalizer::RewriteNodeAsCall(GenTree**             use,
 #endif
 
     call = comp->fgMorphArgs(call);
-    // Determine if this call has changed any codegen requirements.
-    comp->fgCheckArgCnt();
 
     // Replace "tree" with "call"
     if (parents.Height() > 1)
@@ -293,7 +291,7 @@ void Rationalizer::FixupIfSIMDLocal(GenTreeLclVarCommon* node)
             node->gtFlags &= ~(GTF_VAR_USEASG);
             break;
     }
-    unsigned simdSize = (unsigned int)roundUp(varDsc->lvExactSize, TARGET_POINTER_SIZE);
+    unsigned simdSize = roundUp(varDsc->lvExactSize, TARGET_POINTER_SIZE);
     node->gtType      = comp->getSIMDTypeForSize(simdSize);
 #endif // FEATURE_SIMD
 }
@@ -450,7 +448,7 @@ void Rationalizer::RewriteAssignment(LIR::Use& use)
                 {
                     CORINFO_CLASS_HANDLE structHnd = varDsc->lvVerTypeInfo.GetClassHandle();
                     GenTreeObj*          objNode   = comp->gtNewObjNode(structHnd, location)->AsObj();
-                    unsigned int         slots = (unsigned)(roundUp(size, TARGET_POINTER_SIZE) / TARGET_POINTER_SIZE);
+                    unsigned int         slots     = roundUp(size, TARGET_POINTER_SIZE) / TARGET_POINTER_SIZE;
 
                     objNode->SetGCInfo(varDsc->lvGcLayout, varDsc->lvStructGcCount, slots);
                     objNode->ChangeOper(GT_STORE_OBJ);
@@ -551,7 +549,10 @@ void Rationalizer::RewriteAssignment(LIR::Use& use)
                 (assignment->gtFlags & (GTF_ALL_EFFECT | GTF_BLK_VOLATILE | GTF_BLK_UNALIGNED | GTF_DONT_CSE));
             storeBlk->gtBlk.Data() = value;
 
-            // Replace the assignment node with the store
+            // Remove the block node from its current position and replace the assignment node with it
+            // (now in its store form).
+            BlockRange().Remove(storeBlk);
+            BlockRange().InsertBefore(assignment, storeBlk);
             use.ReplaceWith(comp, storeBlk);
             BlockRange().Remove(assignment);
             DISPTREERANGE(BlockRange(), use.Def());
@@ -931,7 +932,6 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, ArrayStack<G
     {
         if (use.IsDummyUse())
         {
-            comp->lvaDecRefCnts(node);
             BlockRange().Remove(node);
         }
         else

@@ -8900,6 +8900,20 @@ CORINFO_METHOD_HANDLE CEEInfo::resolveVirtualMethodHelper(CORINFO_METHOD_HANDLE 
         // exactly derived class. It is up to the jit to determine whether
         // directly calling this method is correct.
         pDevirtMD = pDerivedMT->GetMethodDescForSlot(slot);
+
+        // If the derived method's slot does not match the vtable slot,
+        // bail on devirtualization, as the method was installed into
+        // the vtable slot via an explicit override and even if the
+        // method is final, the slot may not be.
+        //
+        // Note the jit could still safely devirtualize if it had an exact
+        // class, but such cases are likely rare.
+        WORD dslot = pDevirtMD->GetSlot();
+
+        if (dslot != slot)
+        {
+            return nullptr;
+        }
     }
 
     _ASSERTE(pDevirtMD->IsRestored());
@@ -9968,30 +9982,16 @@ void* CEEInfo::getPInvokeUnmanagedTarget(CORINFO_METHOD_HANDLE method,
         MODE_PREEMPTIVE;
     } CONTRACTL_END;
 
-    void* result = NULL;
+    // Not expected to work due to multicore and tiered JIT potentially needing
+    // to call managed cctors
+    _ASSERTE(FALSE);
 
     if (ppIndirection != NULL)
+    {
         *ppIndirection = NULL;
-
-#ifndef CROSSGEN_COMPILE
-    JIT_TO_EE_TRANSITION();
-
-    MethodDesc* ftn = GetMethod(method);
-    _ASSERTE(ftn->IsNDirect());
-    NDirectMethodDesc *pMD = (NDirectMethodDesc*)ftn;
-
-    if (pMD->NDirectTargetIsImportThunk())
-    {
-    }
-    else
-    {
-        result = pMD->GetNDirectTarget();
     }
 
-    EE_TO_JIT_TRANSITION();
-#endif // CROSSGEN_COMPILE
-
-    return result;
+    return NULL;
 }
 
 /*********************************************************************/
@@ -11717,14 +11717,13 @@ void* CEEJitInfo::getFieldAddress(CORINFO_FIELD_HANDLE fieldHnd,
 
     _ASSERTE(!pMT->ContainsGenericVariables());
 
-    // We must not call here for statics of collectible types.
-    _ASSERTE(!pMT->Collectible());
-
     void *base = NULL;
 
     if (!field->IsRVA())
     {
         // <REVISIT_TODO>@todo: assert that the current method being compiled is unshared</REVISIT_TODO>
+        // We must not call here for statics of collectible types.
+        _ASSERTE(!pMT->Collectible());
 
         // Allocate space for the local class if necessary, but don't trigger
         // class construction.
@@ -12398,7 +12397,7 @@ CorJitResult CallCompileMethodWithSEHWrapper(EEJitManager *jitMgr,
         flags.Set(CORJIT_FLAGS::CORJIT_FLAG_FRAMED);
     if (g_pConfig->JitAlignLoops())
         flags.Set(CORJIT_FLAGS::CORJIT_FLAG_ALIGN_LOOPS);
-    if (ReJitManager::IsReJITEnabled() || g_pConfig->AddRejitNops())
+    if (ftn->IsVersionableWithJumpStamp() || g_pConfig->AddRejitNops())
         flags.Set(CORJIT_FLAGS::CORJIT_FLAG_PROF_REJIT_NOPS);
 #ifdef _TARGET_X86_
     if (g_pConfig->PInvokeRestoreEsp(ftn->GetModule()->IsPreV4Assembly()))
@@ -13746,7 +13745,7 @@ void* CEEInfo::getTailCallCopyArgsThunk(CORINFO_SIG_INFO       *pSig,
 
     JIT_TO_EE_TRANSITION();
 
-    Stub* pStub = CPUSTUBLINKER::CreateTailCallCopyArgsThunk(pSig, flags);
+    Stub* pStub = CPUSTUBLINKER::CreateTailCallCopyArgsThunk(pSig, m_pMethodBeingCompiled, flags);
         
     ftn = (void*)pStub->GetEntryPoint();
 

@@ -704,7 +704,6 @@ public:
         InterlockedUpdateFlags(mdcNotInline, set);
     }
 
-    BOOL IsIntrospectionOnly();
 #ifndef DACCESS_COMPILE
     VOID EnsureActive();
 #endif
@@ -2681,6 +2680,17 @@ public:
     // Atomically set specified flags. Only setting of the bits is supported.
     void InterlockedSetNDirectFlags(WORD wFlags);
 
+    void SetIsEarlyBound()
+    {
+        LIMITED_METHOD_CONTRACT;
+        ndirect.m_wFlags |= kEarlyBound;
+    }
+
+    BOOL IsEarlyBound()
+    {
+        LIMITED_METHOD_CONTRACT;
+        return (ndirect.m_wFlags & kEarlyBound) != 0;
+    }
 
     BOOL IsNativeAnsi() const
     {
@@ -2870,9 +2880,8 @@ public:
     LPVOID FindEntryPoint(HINSTANCE hMod) const;
 
 private:
-    Stub* GenerateStubForHost(LPVOID pNativeTarget, Stub *pInnerStub);
 #ifdef MDA_SUPPORTED    
-    Stub* GenerateStubForMDA(LPVOID pNativeTarget, Stub *pInnerStub, BOOL fCalledByStub);
+    Stub* GenerateStubForMDA(LPVOID pNativeTarget, Stub *pInnerStub);
 #endif // MDA_SUPPORTED
 
 public:
@@ -2914,6 +2923,7 @@ public:
     }
 #endif // defined(_TARGET_X86_)
 
+    VOID InitEarlyBoundNDirectTarget();
 
     // In AppDomains, we can trigger declarer's cctor when we link the P/Invoke,
     // which takes care of inlined calls as well. See code:NDirect.NDirectLink.
@@ -3055,7 +3065,6 @@ struct ComPlusCallInfo
         LPVOID      m_pInterceptStub;    // used for early-bound IL stub calls
     };
 
-    Stub *GenerateStubForHost(LoaderHeap *pHeap, Stub *pInnerStub);
 #else // _TARGET_X86_
     void InitStackArgumentSize()
     {

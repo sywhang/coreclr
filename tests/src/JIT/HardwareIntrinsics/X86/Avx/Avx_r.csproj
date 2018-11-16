@@ -20,7 +20,7 @@
     </CodeAnalysisDependentAssemblyPaths>
   </ItemGroup>
   <PropertyGroup>
-    <DebugType>None</DebugType>
+    <DebugType>Embedded</DebugType>
     <Optimize></Optimize>
   </PropertyGroup>
   <ItemGroup>
@@ -128,6 +128,10 @@
     <Compile Include="GetLowerHalf.UInt16.cs" />
     <Compile Include="GetLowerHalf.UInt32.cs" />
     <Compile Include="GetLowerHalf.UInt64.cs" />
+    <Compile Include="MaskLoad.Double.cs" />
+    <Compile Include="MaskLoad.Single.cs" />
+    <Compile Include="MaskStore.Double.cs" />
+    <Compile Include="MaskStore.Single.cs" />
     <Compile Include="Max.Double.cs" />
     <Compile Include="Max.Single.cs" />
     <Compile Include="Min.Double.cs" />
@@ -140,8 +144,6 @@
     <Compile Include="Permute.Double.1.cs" />
     <Compile Include="Permute.Single.2.cs" />
     <Compile Include="Permute.Double.2.cs" />
-    <Compile Include="PermuteVar.Single.cs" />
-    <Compile Include="PermuteVar.Double.cs" />
     <Compile Include="RoundCurrentDirection.Double.cs" />
     <Compile Include="RoundCurrentDirection.Single.cs" />
     <Compile Include="RoundToNearestInteger.Double.cs" />

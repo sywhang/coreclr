@@ -1148,10 +1148,10 @@ void CodeGen::genCaptureFuncletPrologEpilogInfo()
         // so that they are contiguous with the incoming stack arguments.
         saveRegsPlusPSPSize += MAX_REG_ARG * REGSIZE_BYTES;
     }
-    unsigned saveRegsPlusPSPSizeAligned = (unsigned)roundUp(saveRegsPlusPSPSize, STACK_ALIGN);
+    unsigned saveRegsPlusPSPSizeAligned = roundUp(saveRegsPlusPSPSize, STACK_ALIGN);
 
     assert(compiler->lvaOutgoingArgSpaceSize % REGSIZE_BYTES == 0);
-    unsigned outgoingArgSpaceAligned = (unsigned)roundUp(compiler->lvaOutgoingArgSpaceSize, STACK_ALIGN);
+    unsigned outgoingArgSpaceAligned = roundUp(compiler->lvaOutgoingArgSpaceSize, STACK_ALIGN);
 
     unsigned maxFuncletFrameSizeAligned = saveRegsPlusPSPSizeAligned + outgoingArgSpaceAligned;
     assert((maxFuncletFrameSizeAligned % STACK_ALIGN) == 0);
@@ -1163,7 +1163,7 @@ void CodeGen::genCaptureFuncletPrologEpilogInfo()
     if (maxFuncletFrameSizeAligned <= 512)
     {
         unsigned funcletFrameSize        = saveRegsPlusPSPSize + compiler->lvaOutgoingArgSpaceSize;
-        unsigned funcletFrameSizeAligned = (unsigned)roundUp(funcletFrameSize, STACK_ALIGN);
+        unsigned funcletFrameSizeAligned = roundUp(funcletFrameSize, STACK_ALIGN);
         assert(funcletFrameSizeAligned <= maxFuncletFrameSizeAligned);
 
         unsigned funcletFrameAlignmentPad = funcletFrameSizeAligned - funcletFrameSize;
@@ -1887,7 +1887,7 @@ void CodeGen::genLclHeap(GenTree* tree)
             goto BAILOUT;
         }
 
-        // 'amount' is the total numbe of bytes to localloc to properly STACK_ALIGN
+        // 'amount' is the total number of bytes to localloc to properly STACK_ALIGN
         amount = AlignUp(amount, STACK_ALIGN);
     }
     else
@@ -1965,16 +1965,18 @@ void CodeGen::genLclHeap(GenTree* tree)
         // We should reach here only for non-zero, constant size allocations.
         assert(amount > 0);
 
-        // For small allocations we will generate up to four stp instructions
-        size_t cntStackAlignedWidthItems = (amount >> STACK_ALIGN_SHIFT);
-        if (cntStackAlignedWidthItems <= 4)
+        // For small allocations we will generate up to four stp instructions, to zero 16 to 64 bytes.
+        static_assert_no_msg(STACK_ALIGN == (REGSIZE_BYTES * 2));
+        assert(amount % (REGSIZE_BYTES * 2) == 0); // stp stores two registers at a time
+        size_t stpCount = amount / (REGSIZE_BYTES * 2);
+        if (stpCount <= 4)
         {
-            while (cntStackAlignedWidthItems != 0)
+            while (stpCount != 0)
             {
                 // We can use pre-indexed addressing.
-                // stp ZR, ZR, [SP, #-16]!
+                // stp ZR, ZR, [SP, #-16]!   // STACK_ALIGN is 16
                 getEmitter()->emitIns_R_R_R_I(INS_stp, EA_PTRSIZE, REG_ZR, REG_ZR, REG_SPBASE, -16, INS_OPTS_PRE_INDEX);
-                cntStackAlignedWidthItems -= 1;
+                stpCount -= 1;
             }
 
             goto ALLOC_DONE;
@@ -2467,7 +2469,7 @@ void CodeGen::genCodeForCpObj(GenTreeObj* cpObjNode)
         sourceIsLocal = true;
     }
 
-    bool dstOnStack = dstAddr->OperIsLocalAddr();
+    bool dstOnStack = dstAddr->gtSkipReloadOrCopy()->OperIsLocalAddr();
 
 #ifdef DEBUG
     assert(!dstAddr->isContained());
@@ -2635,7 +2637,7 @@ void CodeGen::genJumpTable(GenTree* treeNode)
         BasicBlock* target = *jumpTable++;
         noway_assert(target->bbFlags & BBF_JMP_TARGET);
 
-        JITDUMP("            DD      L_M%03u_BB%02u\n", Compiler::s_compMethodsCount, target->bbNum);
+        JITDUMP("            DD      L_M%03u_" FMT_BB "\n", Compiler::s_compMethodsCount, target->bbNum);
 
         getEmitter()->emitDataGenData(i, target);
     };

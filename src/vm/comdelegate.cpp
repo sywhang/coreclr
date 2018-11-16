@@ -405,6 +405,10 @@ VOID GenerateShuffleArray(MethodDesc* pInvoke, MethodDesc *pTargetMeth, SArray<S
     {
         // The return buffer argument is implicit in both signatures.
 
+#if !defined(_TARGET_ARM64_) || !defined(CALLDESCR_RETBUFFARGREG)
+        // The ifdef above disables this code if the ret buff arg is always in the same register, which
+        // means that we don't need to do any shuffling for it.
+
         sArgPlacerSrc.GetRetBuffArgLoc(&sArgSrc);
         sArgPlacerDst.GetRetBuffArgLoc(&sArgDst);
 
@@ -419,6 +423,7 @@ VOID GenerateShuffleArray(MethodDesc* pInvoke, MethodDesc *pTargetMeth, SArray<S
         // along) in the case where it's not a no-op (i.e. the source and destination ops are different).
         if (entry.srcofs != entry.dstofs)
             pShuffleEntryArray->Append(entry);
+#endif // !defined(_TARGET_ARM64_) || !defined(CALLDESCR_RETBUFFARGREG)
     }
 
     // Iterate all the regular arguments. mapping source registers and stack locations to the corresponding
@@ -503,51 +508,6 @@ VOID GenerateShuffleArray(MethodDesc* pInvoke, MethodDesc *pTargetMeth, SArray<S
 }
 
 
-class ShuffleThunkCache : public StubCacheBase
-{
-private:
-    //---------------------------------------------------------
-    // Compile a static delegate shufflethunk. Always returns
-    // STANDALONE since we don't interpret these things.
-    //---------------------------------------------------------
-    virtual void CompileStub(const BYTE *pRawStub,
-                             StubLinker *pstublinker)
-    {
-        STANDARD_VM_CONTRACT;
-
-        ((CPUSTUBLINKER*)pstublinker)->EmitShuffleThunk((ShuffleEntry*)pRawStub);
-    }
-
-    //---------------------------------------------------------
-    // Tells the StubCacheBase the length of a ShuffleEntryArray.
-    //---------------------------------------------------------
-    virtual UINT Length(const BYTE *pRawStub)
-    {
-        LIMITED_METHOD_CONTRACT;
-        ShuffleEntry *pse = (ShuffleEntry*)pRawStub;
-        while (pse->srcofs != ShuffleEntry::SENTINEL)
-        {
-            pse++;
-        }
-        return sizeof(ShuffleEntry) * (UINT)(1 + (pse - (ShuffleEntry*)pRawStub));
-    }
-
-    virtual void AddStub(const BYTE* pRawStub, Stub* pNewStub)
-    {
-        CONTRACTL
-        {
-            THROWS;
-            GC_NOTRIGGER;
-            MODE_ANY;
-        }
-        CONTRACTL_END;
-
-#ifndef CROSSGEN_COMPILE
-        DelegateInvokeStubManager::g_pManager->AddStub(pNewStub);
-#endif
-    }
-};
-
 ShuffleThunkCache *COMDelegate::m_pShuffleThunkCache = NULL;
 MulticastStubCache *COMDelegate::m_pSecureDelegateStubCache = NULL;
 MulticastStubCache *COMDelegate::m_pMulticastStubCache = NULL;
@@ -574,7 +534,7 @@ void COMDelegate::Init()
     LockOwner lock = {&COMDelegate::s_DelegateToFPtrHashCrst, IsOwnerOfCrst};
     s_pDelegateToFPtrHash->Init(TRUE, &lock);
 
-    m_pShuffleThunkCache = new ShuffleThunkCache();
+    m_pShuffleThunkCache = new ShuffleThunkCache(SystemDomain::GetGlobalLoaderAllocator()->GetStubHeap());
     m_pMulticastStubCache = new MulticastStubCache();
     m_pSecureDelegateStubCache = new MulticastStubCache();
 }
@@ -637,7 +597,15 @@ Stub* COMDelegate::SetupShuffleThunk(MethodTable * pDelMT, MethodDesc *pTargetMe
     StackSArray<ShuffleEntry> rShuffleEntryArray;
     GenerateShuffleArray(pMD, pTargetMeth, &rShuffleEntryArray);
 
-    Stub* pShuffleThunk = m_pShuffleThunkCache->Canonicalize((const BYTE *)&rShuffleEntryArray[0]);
+    ShuffleThunkCache* pShuffleThunkCache = m_pShuffleThunkCache;
+
+    LoaderAllocator* pLoaderAllocator = pDelMT->GetLoaderAllocator();
+    if (pLoaderAllocator->IsCollectible())
+    {
+        pShuffleThunkCache = ((AssemblyLoaderAllocator*)pLoaderAllocator)->GetShuffleThunkCache();
+    }
+
+    Stub* pShuffleThunk = pShuffleThunkCache->Canonicalize((const BYTE *)&rShuffleEntryArray[0]);
     if (!pShuffleThunk)
     {
         COMPlusThrowOM();
@@ -1433,15 +1401,12 @@ OBJECTREF COMDelegate::ConvertToDelegate(LPVOID pCallback, MethodTable* pMT)
         MethodDesc *pStubMD = pClass->m_pForwardStubMD;
         _ASSERTE(pStubMD != NULL && pStubMD->IsILStub());
 
-
-#ifdef MDA_SUPPORTED
+#if defined(MDA_SUPPORTED)
         if (MDA_GET_ASSISTANT(PInvokeStackImbalance))
         {
             pInterceptStub = GenerateStubForMDA(pMD, pStubMD, pCallback, pInterceptStub);
         }
 #endif // MDA_SUPPORTED
-
-
     }
 
     if (pInterceptStub != NULL)
@@ -1454,7 +1419,7 @@ OBJECTREF COMDelegate::ConvertToDelegate(LPVOID pCallback, MethodTable* pMT)
     }
 
     GCPROTECT_END();
-#endif // defined(_TARGET_X86_)
+#endif // _TARGET_X86_
 
     return delObj;
 }

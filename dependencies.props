@@ -23,24 +23,28 @@
 
   <!-- Source of truth for dependency tooling: the commit hash of the dotnet/versions master branch as of the last auto-upgrade. -->
   <PropertyGroup>
-    <CoreFxCurrentRef>8c9a65325fc401a27c76a23299d7501ff24f4dd8</CoreFxCurrentRef>
-    <CoreClrCurrentRef>8c9a65325fc401a27c76a23299d7501ff24f4dd8</CoreClrCurrentRef>
-    <BuildToolsCurrentRef>3b2844e866d3898d43d98aad0e3e57dd5675d259</BuildToolsCurrentRef>
-    <PgoDataCurrentRef>d8a64e527e67cae4bb3c9d93379fd43aa317165b</PgoDataCurrentRef>
+    <CoreFxCurrentRef>fdd0b548adc896b40ecb28af7de3b781b30fa890</CoreFxCurrentRef>
+    <CoreClrCurrentRef>fdd0b548adc896b40ecb28af7de3b781b30fa890</CoreClrCurrentRef>
+    <BuildToolsCurrentRef>e0c1d36d8a19fed21cadfff4890e027bd4c2c214</BuildToolsCurrentRef>
+    <PgoDataCurrentRef>fdd0b548adc896b40ecb28af7de3b781b30fa890</PgoDataCurrentRef>
+    <CoreSetupCurrentRef>fdd0b548adc896b40ecb28af7de3b781b30fa890</CoreSetupCurrentRef>
+    <IbcDataCurrentRef>e0c1d36d8a19fed21cadfff4890e027bd4c2c214</IbcDataCurrentRef>
   </PropertyGroup>
 
   <!-- Tests/infrastructure dependency versions. -->
   <PropertyGroup>
-    <MicrosoftPrivateCoreFxNETCoreAppPackageVersion>4.6.0-preview1-26704-01</MicrosoftPrivateCoreFxNETCoreAppPackageVersion>
-    <MicrosoftNETCorePlatformsPackageVersion>3.0.0-preview1-26704-01</MicrosoftNETCorePlatformsPackageVersion>
-    <PgoDataPackageVersion>99.99.99-master-20180703-0030</PgoDataPackageVersion>
-    <MicrosoftNETCoreRuntimeCoreCLRPackageVersion>3.0.0-preview1-26704-01</MicrosoftNETCoreRuntimeCoreCLRPackageVersion>
-    <XunitPackageVersion>2.2.0-beta2-build3300</XunitPackageVersion>
-    <XunitConsoleNetcorePackageVersion>2.2.0-preview1-02830-02</XunitConsoleNetcorePackageVersion>
+    <MicrosoftPrivateCoreFxNETCoreAppPackageVersion>4.6.0-preview1-26827-04</MicrosoftPrivateCoreFxNETCoreAppPackageVersion>
+    <MicrosoftNETCorePlatformsPackageVersion>3.0.0-preview1-26827-04</MicrosoftNETCorePlatformsPackageVersion>
+    <PgoDataPackageVersion>99.99.99-master-20180827-0150</PgoDataPackageVersion>
+    <MicrosoftNETCoreRuntimeCoreCLRPackageVersion>3.0.0-preview1-26827-04</MicrosoftNETCoreRuntimeCoreCLRPackageVersion>
+    <MicrosoftNETCoreAppPackageVersion>3.0.0-preview1-26827-01</MicrosoftNETCoreAppPackageVersion>
+    <XunitPackageVersion>2.4.0-beta.2.build4010</XunitPackageVersion>
+    <IbcDataPackageVersion>99.99.99-master-20180827-0150</IbcDataPackageVersion>
+    <IbcMergePackageVersion>4.6.0-alpha-00001</IbcMergePackageVersion>
     <XunitPerformanceApiPackageVersion>1.0.0-beta-build0015</XunitPerformanceApiPackageVersion>
     <MicrosoftDiagnosticsTracingTraceEventPackageVersion>2.0.4</MicrosoftDiagnosticsTracingTraceEventPackageVersion>
     <CommandLineParserVersion>2.2.0</CommandLineParserVersion>
-    <VCRuntimeVersion>1.2.0</VCRuntimeVersion>
+    <VCRuntimeVersion>2.0.0</VCRuntimeVersion>
     
     <!-- Scenario tests install this version of Microsoft.NetCore.App, then patch coreclr binaries via xcopy. At the moment it is
          updated manually whenever breaking changes require it to move forward, but it would be nice if we could update it automatically
@@ -51,7 +55,7 @@
   <!-- Package versions used as toolsets -->
   <PropertyGroup>
     <FeedTasksPackage>Microsoft.DotNet.Build.Tasks.Feed</FeedTasksPackage>
-    <FeedTasksPackageVersion>2.2.0-preview1-03002-01</FeedTasksPackageVersion>
+    <FeedTasksPackageVersion>2.2.0-preview1-03116-01</FeedTasksPackageVersion>
   </PropertyGroup>
 
   <!-- Publish symbol build task package -->
@@ -90,6 +94,14 @@
       <BuildInfoPath>$(BaseDotNetBuildInfo)optimization/$(DependencyBranch)</BuildInfoPath>
       <CurrentRef>$(PgoDataCurrentRef)</CurrentRef>
     </RemoteDependencyBuildInfo>
+    <RemoteDependencyBuildInfo Include="IbcData">
+      <BuildInfoPath>$(BaseDotNetBuildInfo)optimization/$(DependencyBranch)</BuildInfoPath>
+      <CurrentRef>$(IbcDataCurrentRef)</CurrentRef>
+    </RemoteDependencyBuildInfo>
+    <RemoteDependencyBuildInfo Include="CoreSetup">
+      <BuildInfoPath>$(BaseDotNetBuildInfo)core-setup/$(DependencyBranch)</BuildInfoPath>
+      <CurrentRef>$(CoreSetupCurrentRef)</CurrentRef>
+    </RemoteDependencyBuildInfo>
 
     <DependencyBuildInfo Include="@(RemoteDependencyBuildInfo)">
       <RawVersionsBaseUrl>https://raw.githubusercontent.com/dotnet/versions</RawVersionsBaseUrl>
@@ -110,6 +122,11 @@
       <ElementName>MicrosoftNETCoreRuntimeCoreCLRPackageVersion</ElementName>
       <PackageId>Microsoft.NETCore.Runtime.CoreCLR</PackageId>
     </XmlUpdateStep>
+    <XmlUpdateStep Include="CoreSetup">
+      <Path>$(MSBuildThisFileFullPath)</Path>
+      <ElementName>MicrosoftNETCoreAppPackageVersion</ElementName>
+      <PackageId>Microsoft.NETCore.App</PackageId>
+    </XmlUpdateStep>
     <UpdateStep Include="BuildTools">
       <UpdaterType>File</UpdaterType>
       <Path>$(MSBuildThisFileDirectory)BuildToolsVersion.txt</Path>
@@ -124,6 +141,11 @@
       <Path>$(MSBuildThisFileFullPath)</Path>
       <ElementName>PgoDataPackageVersion</ElementName>
       <PackageId>optimization.PGO.CoreCLR</PackageId>
+    </XmlUpdateStep>
+    <XmlUpdateStep Include="Data">
+      <Path>$(MSBuildThisFileFullPath)</Path>
+      <ElementName>IbcDataPackageVersion</ElementName>
+      <PackageId>optimization.IBC.CoreCLR</PackageId>
     </XmlUpdateStep>
     <UpdateStep Include="ILAsm">
       <UpdaterType>File</UpdaterType>
@@ -162,10 +184,6 @@
     <XUnitPerformanceApiDependency Include="xunit.performance.metrics" />
     <StaticDependency Include="@(XUnitPerformanceApiDependency)">
       <Version>$(XunitPerformanceApiPackageVersion)</Version>
-    </StaticDependency>
-
-    <StaticDependency Include="xunit.console.netcore">
-      <Version>$(XunitConsoleNetcorePackageVersion)</Version>
     </StaticDependency>
 
     <DependencyBuildInfo Include="@(StaticDependency)">

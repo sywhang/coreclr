@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Reflection.PortableExecutable;
 using System.Text;
 using System.Xml;
 
@@ -8,7 +9,7 @@ namespace R2RDump
 {
     class TextDumper : Dumper
     {
-        public TextDumper(R2RReader r2r, TextWriter writer, bool raw, bool header, bool disasm, IntPtr disassembler, bool unwind, bool gc, bool sectionContents)
+        public TextDumper(R2RReader r2r, TextWriter writer, bool raw, bool header, bool disasm, Disassembler disassembler, bool unwind, bool gc, bool sectionContents)
         {
             _r2r = r2r;
             _writer = writer;
@@ -25,6 +26,7 @@ namespace R2RDump
         internal override void Begin()
         {
             _writer.WriteLine($"Filename: {_r2r.Filename}");
+            _writer.WriteLine($"OS: {_r2r.OS}");
             _writer.WriteLine($"Machine: {_r2r.Machine}");
             _writer.WriteLine($"ImageBase: 0x{_r2r.ImageBase:X8}");
             SkipLine();
@@ -119,7 +121,7 @@ namespace R2RDump
             WriteSubDivider();
             _writer.WriteLine(method.ToString());
 
-            if (_gc)
+            if (_gc && method.GcInfo != null)
             {
                 _writer.WriteLine("GcInfo:");
                 _writer.Write(method.GcInfo);
@@ -147,7 +149,7 @@ namespace R2RDump
 
             if (_disasm)
             {
-                DumpDisasm(_disassembler, rtf, _r2r.GetOffset(rtf.StartAddress), _r2r.Image);
+                DumpDisasm(rtf, _r2r.GetOffset(rtf.StartAddress));
             }
 
             if (_raw)
@@ -161,28 +163,50 @@ namespace R2RDump
                 _writer.Write(rtf.UnwindInfo);
                 if (_raw)
                 {
-                    DumpBytes(rtf.UnwindRVA, (uint)((Amd64.UnwindInfo)rtf.UnwindInfo).Size);
+                    DumpBytes(rtf.UnwindRVA, (uint)rtf.UnwindInfo.Size);
                 }
             }
             SkipLine();
         }
 
-        internal unsafe override void DumpDisasm(IntPtr Disasm, RuntimeFunction rtf, int imageOffset, byte[] image, XmlNode parentNode = null)
+        /// <summary>
+        /// Dumps disassembly and register liveness
+        /// </summary>
+        internal override void DumpDisasm(RuntimeFunction rtf, int imageOffset, XmlNode parentNode = null)
         {
             int rtfOffset = 0;
             int codeOffset = rtf.CodeOffset;
-            Dictionary<int, GcInfo.GcTransition> transitions = rtf.Method.GcInfo.Transitions;
-            GcSlotTable slotTable = rtf.Method.GcInfo.SlotTable;
             while (rtfOffset < rtf.Size)
             {
                 string instr;
-                int instrSize = CoreDisTools.GetInstruction(Disasm, rtf, imageOffset, rtfOffset, image, out instr);
+                int instrSize = _disassembler.GetInstruction(rtf, imageOffset, rtfOffset, out instr);
 
-                _writer.Write(instr);
-                if (transitions.ContainsKey(codeOffset))
+                if (_r2r.Machine == Machine.Amd64 && ((Amd64.UnwindInfo)rtf.UnwindInfo).UnwindCodes.ContainsKey(codeOffset))
                 {
-                    _writer.WriteLine($"\t\t\t\t{transitions[codeOffset].GetSlotState(slotTable)}");
+                    List<Amd64.UnwindCode> codes = ((Amd64.UnwindInfo)rtf.UnwindInfo).UnwindCodes[codeOffset];
+                    foreach (Amd64.UnwindCode code in codes)
+                    {
+                        _writer.Write($"\t\t\t\t{code.UnwindOp} {code.OpInfoStr}");
+                        if (code.NextFrameOffset != -1)
+                        {
+                            _writer.WriteLine($" - {code.NextFrameOffset}");
+                        }
+                        _writer.WriteLine();
+                    }
                 }
+
+                if (rtf.Method.GcInfo != null && rtf.Method.GcInfo.Transitions.ContainsKey(codeOffset))
+                {
+                    foreach (BaseGcTransition transition in rtf.Method.GcInfo.Transitions[codeOffset])
+                    {
+                        _writer.WriteLine($"\t\t\t\t{transition.ToString()}");
+                    }
+                }
+
+                /* According to https://msdn.microsoft.com/en-us/library/ck9asaa9.aspx and src/vm/gcinfodecoder.cpp
+                 * UnwindCode and GcTransition CodeOffsets are encoded with a -1 adjustment (that is, it's the offset of the start of the next instruction)
+                 */
+                _writer.Write(instr);
 
                 CoreDisTools.ClearOutputBuffer();
                 rtfOffset += instrSize;
@@ -242,7 +266,7 @@ namespace R2RDump
                     }
                     break;
                 case R2RSection.SectionType.READYTORUN_SECTION_METHODDEF_ENTRYPOINTS:
-                        NativeArray methodEntryPoints = new NativeArray(_r2r.Image, (uint)_r2r.GetOffset(section.RelativeVirtualAddress));
+                    NativeArray methodEntryPoints = new NativeArray(_r2r.Image, (uint)_r2r.GetOffset(section.RelativeVirtualAddress));
                     _writer.Write(methodEntryPoints.ToString());
                     break;
                 case R2RSection.SectionType.READYTORUN_SECTION_INSTANCE_METHOD_ENTRYPOINTS:
@@ -257,8 +281,18 @@ namespace R2RDump
                     int rtfIndex = 0;
                     while (rtfOffset < rtfEndOffset)
                     {
-                        uint rva = NativeReader.ReadUInt32(_r2r.Image, ref rtfOffset);
-                        _writer.WriteLine($"{rtfIndex}: 0x{rva:X8}");
+                        int startRva = NativeReader.ReadInt32(_r2r.Image, ref rtfOffset);
+                        int endRva = -1;
+                        if (_r2r.Machine == Machine.Amd64)
+                        {
+                            endRva = NativeReader.ReadInt32(_r2r.Image, ref rtfOffset);
+                        }
+                        int unwindRva = NativeReader.ReadInt32(_r2r.Image, ref rtfOffset);
+                        _writer.WriteLine($"Index: {rtfIndex}");
+                        _writer.WriteLine($"\tStartRva: 0x{startRva:X8}");
+                        if (endRva != -1)
+                            _writer.WriteLine($"\tEndRva: 0x{endRva:X8}");
+                        _writer.WriteLine($"\tUnwindRva: 0x{unwindRva:X8}");
                         rtfIndex++;
                     }
                     break;
@@ -281,7 +315,7 @@ namespace R2RDump
                                 _writer.WriteLine("Signature Bytes:");
                                 DumpBytes(importSection.SignatureRVA, (uint)importSection.Entries.Count * sizeof(int));
                             }
-                            if (importSection.AuxiliaryDataRVA != 0)
+                            if (importSection.AuxiliaryDataRVA != 0 && importSection.AuxiliaryData != null)
                             {
                                 _writer.WriteLine("AuxiliaryData Bytes:");
                                 DumpBytes(importSection.AuxiliaryDataRVA, (uint)importSection.AuxiliaryData.Size);
@@ -289,7 +323,6 @@ namespace R2RDump
                         }
                         foreach (R2RImportSection.ImportSectionEntry entry in importSection.Entries)
                         {
-                            _writer.WriteLine();
                             _writer.WriteLine(entry.ToString());
                         }
                         _writer.WriteLine();

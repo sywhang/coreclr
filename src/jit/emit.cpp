@@ -2150,7 +2150,7 @@ const emitAttr emitter::emitSizeDecode[emitter::OPSZ_COUNT] = {EA_1BYTE, EA_2BYT
  *  a displacement and a constant.
  */
 
-emitter::instrDesc* emitter::emitNewInstrCnsDsp(emitAttr size, ssize_t cns, int dsp)
+emitter::instrDesc* emitter::emitNewInstrCnsDsp(emitAttr size, target_ssize_t cns, int dsp)
 {
     if (dsp == 0)
     {
@@ -3638,7 +3638,7 @@ AGAIN:
 #ifdef DEBUG
                     if (EMITVERBOSE)
                     {
-                        printf("Adjusted offset of block %02u from %04X to %04X\n", lstIG->igNum, lstIG->igOffs,
+                        printf("Adjusted offset of " FMT_BB " from %04X to %04X\n", lstIG->igNum, lstIG->igOffs,
                                lstIG->igOffs - adjIG);
                     }
 #endif // DEBUG
@@ -3723,7 +3723,7 @@ AGAIN:
             {
                 printf("Binding: ");
                 emitDispIns(jmp, false, false, false);
-                printf("Binding L_M%03u_BB%02u ", Compiler::s_compMethodsCount, jmp->idAddr()->iiaBBlabel->bbNum);
+                printf("Binding L_M%03u_" FMT_BB, Compiler::s_compMethodsCount, jmp->idAddr()->iiaBBlabel->bbNum);
             }
 #endif // DEBUG
 
@@ -3738,7 +3738,7 @@ AGAIN:
                 }
                 else
                 {
-                    printf("-- ERROR, no emitter cookie for BB%02u; it is probably missing BBF_JMP_TARGET or "
+                    printf("-- ERROR, no emitter cookie for " FMT_BB "; it is probably missing BBF_JMP_TARGET or "
                            "BBF_HAS_LABEL.\n",
                            jmp->idAddr()->iiaBBlabel->bbNum);
                 }
@@ -4111,7 +4111,7 @@ AGAIN:
 #ifdef DEBUG
             if (EMITVERBOSE)
             {
-                printf("Adjusted offset of block %02u from %04X to %04X\n", lstIG->igNum, lstIG->igOffs,
+                printf("Adjusted offset of " FMT_BB " from %04X to %04X\n", lstIG->igNum, lstIG->igOffs,
                        lstIG->igOffs - adjIG);
             }
 #endif // DEBUG
@@ -4656,7 +4656,7 @@ unsigned emitter::emitEndCodeGen(Compiler* comp,
 
                 assert(!dsc->lvRegister);
                 assert(dsc->lvTracked);
-                assert(dsc->lvRefCnt != 0);
+                assert(dsc->lvRefCnt() != 0);
 
                 assert(dsc->TypeGet() == TYP_REF || dsc->TypeGet() == TYP_BYREF);
 
@@ -5453,7 +5453,7 @@ void emitter::emitOutputDataSec(dataSecDsc* sec, BYTE* dst)
                     emitRecordRelocation(&(bDst[i]), target, IMAGE_REL_BASED_HIGHLOW);
                 }
 
-                JITDUMP("  BB%02u: 0x%p\n", block->bbNum, bDst[i]);
+                JITDUMP("  " FMT_BB ": 0x%p\n", block->bbNum, bDst[i]);
             }
         }
         // relative label table
@@ -5476,7 +5476,7 @@ void emitter::emitOutputDataSec(dataSecDsc* sec, BYTE* dst)
                 assert(FitsIn<uint32_t>(lab->igOffs - labFirst->igOffs));
                 uDst[i] = lab->igOffs - labFirst->igOffs;
 
-                JITDUMP("  BB%02u: 0x%x\n", block->bbNum, uDst[i]);
+                JITDUMP("  " FMT_BB ": 0x%x\n", block->bbNum, uDst[i]);
             }
         }
         else
@@ -6697,7 +6697,7 @@ void emitter::emitNxtIG(bool emitAdd)
  *  emitGetInsSC: Get the instruction's constant value.
  */
 
-ssize_t emitter::emitGetInsSC(instrDesc* id)
+target_ssize_t emitter::emitGetInsSC(instrDesc* id)
 {
 #ifdef _TARGET_ARM_ // should it be _TARGET_ARMARCH_? Why do we need this? Note that on ARM64 we store scaled immediates
                     // for some formats
@@ -6733,6 +6733,15 @@ ssize_t emitter::emitGetInsSC(instrDesc* id)
         return id->idSmallCns();
     }
 }
+
+#ifdef _TARGET_ARM_
+
+BYTE* emitter::emitGetInsRelocValue(instrDesc* id)
+{
+    return ((instrDescReloc*)id)->idrRelocVal;
+}
+
+#endif // _TARGET_ARM_
 
 /*****************************************************************************/
 #if EMIT_TRACK_STACK_DEPTH

@@ -1338,7 +1338,7 @@ GenTree* Lowering::PreferredRegOptionalOperand(GenTree* tree)
             // weight as reg optional.
             // If either is not tracked, it may be that it was introduced after liveness
             // was run, in which case we will always prefer op1 (should we use raw refcnt??).
-            if (v1->lvTracked && v2->lvTracked && (v1->lvRefCntWtd >= v2->lvRefCntWtd))
+            if (v1->lvTracked && v2->lvTracked && (v1->lvRefCntWtd() >= v2->lvRefCntWtd()))
             {
                 preferredOp = op2;
             }
@@ -1693,18 +1693,15 @@ void Lowering::ContainCheckMul(GenTreeOp* node)
 //
 void Lowering::ContainCheckShiftRotate(GenTreeOp* node)
 {
+    assert(node->OperIsShiftOrRotate());
 #ifdef _TARGET_X86_
     GenTree* source = node->gtOp1;
-    if (node->OperIs(GT_LSH_HI, GT_RSH_LO))
+    if (node->OperIsShiftLong())
     {
         assert(source->OperGet() == GT_LONG);
         MakeSrcContained(node, source);
     }
-    else
 #endif // !_TARGET_X86_
-    {
-        assert(node->OperIsShiftOrRotate());
-    }
 
     GenTree* shiftBy = node->gtOp2;
     if (IsContainableImmed(node, shiftBy) && (shiftBy->gtIntConCommon.IconValue() <= 255) &&
@@ -2380,14 +2377,17 @@ bool Lowering::IsContainableHWIntrinsicOp(GenTreeHWIntrinsic* containingNode, Ge
                 case NI_SSE41_Blend:
                 case NI_SSE41_DotProduct:
                 case NI_SSE41_MultipleSumAbsoluteDifferences:
+                case NI_AES_KeygenAssist:
                 case NI_AVX_Blend:
                 case NI_AVX_Compare:
                 case NI_AVX_DotProduct:
                 case NI_AVX_InsertVector128:
                 case NI_AVX_Permute:
                 case NI_AVX_Permute2x128:
+                case NI_AVX2_Blend:
                 case NI_AVX2_InsertVector128:
                 case NI_AVX2_Permute2x128:
+                case NI_AVX2_Permute4x64:
                 case NI_AVX2_ShiftLeftLogical:
                 case NI_AVX2_ShiftRightArithmetic:
                 case NI_AVX2_ShiftRightLogical:
@@ -2629,6 +2629,8 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                     case NI_SSE2_ConvertToInt64:
                     case NI_SSE2_ConvertToUInt32:
                     case NI_SSE2_ConvertToUInt64:
+                    case NI_AVX2_ConvertToInt32:
+                    case NI_AVX2_ConvertToUInt32:
                     {
                         if (varTypeIsIntegral(baseType))
                         {
@@ -2767,6 +2769,7 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                         case NI_SSE2_Shuffle:
                         case NI_SSE2_ShuffleHigh:
                         case NI_SSE2_ShuffleLow:
+                        case NI_AVX2_Permute4x64:
                         {
                             // These intrinsics have op2 as an imm and op1 as a reg/mem
 
@@ -2804,6 +2807,19 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                             else if (supportsRegOptional)
                             {
                                 op2->SetRegOptional();
+                            }
+                            break;
+                        }
+
+                        case NI_AES_KeygenAssist:
+                        {
+                            if (IsContainableHWIntrinsicOp(node, op1, &supportsRegOptional))
+                            {
+                                MakeSrcContained(node, op1);
+                            }
+                            else if (supportsRegOptional)
+                            {
+                                op1->SetRegOptional();
                             }
                             break;
                         }
@@ -2958,6 +2974,7 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                         case NI_AVX_Insert:
                         case NI_AVX_Permute2x128:
                         case NI_AVX_Shuffle:
+                        case NI_AVX2_Blend:
                         case NI_AVX2_Permute2x128:
                         {
                             if (IsContainableHWIntrinsicOp(node, op2, &supportsRegOptional))

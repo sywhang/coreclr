@@ -327,11 +327,13 @@ int LinearScan::BuildNode(GenTree* tree)
             srcCount = BuildModDiv(tree->AsOp());
             break;
 
-        case GT_MUL:
-        case GT_MULHI:
 #if defined(_TARGET_X86_)
         case GT_MUL_LONG:
+            dstCount = 2;
+            __fallthrough;
 #endif
+        case GT_MUL:
+        case GT_MULHI:
             srcCount = BuildMul(tree->AsOp());
             break;
 
@@ -607,7 +609,7 @@ int LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_STOREIND:
-            if (compiler->codeGen->gcInfo.gcIsWriteBarrierAsgNode(tree))
+            if (compiler->codeGen->gcInfo.gcIsWriteBarrierStoreIndNode(tree))
             {
                 srcCount = BuildGCWriteBarrier(tree);
                 break;
@@ -682,8 +684,9 @@ int LinearScan::BuildNode(GenTree* tree)
 
     } // end switch (tree->OperGet())
 
-    // We need to be sure that we've set srcCount and dstCount appropriately
-    assert((dstCount < 2) || (tree->IsMultiRegCall() && dstCount == MAX_RET_REG_COUNT));
+    // We need to be sure that we've set srcCount and dstCount appropriately.
+    // Not that for XARCH, the maximum number of registers defined is 2.
+    assert((dstCount < 2) || ((dstCount == 2) && tree->IsMultiRegNode()));
     assert(isLocalDefUse == (tree->IsValue() && tree->IsUnusedValue()));
     assert(!tree->IsUnusedValue() || (dstCount != 0));
     assert(dstCount == tree->GetRegisterDstCount());
@@ -964,6 +967,7 @@ int LinearScan::BuildShiftRotate(GenTree* tree)
         if (!shiftBy->isContained())
         {
             srcCount += BuildDelayFreeUses(shiftBy, RBM_RCX);
+            buildKillPositionsForNode(tree, currentLoc + 1, RBM_RCX);
         }
         BuildDef(tree, dstCandidates);
     }
@@ -972,6 +976,7 @@ int LinearScan::BuildShiftRotate(GenTree* tree)
         if (!shiftBy->isContained())
         {
             srcCount += BuildOperandUses(shiftBy, RBM_RCX);
+            buildKillPositionsForNode(tree, currentLoc + 1, RBM_RCX);
         }
     }
     return srcCount;
@@ -2387,6 +2392,7 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
             case NI_SSE2_ConvertToDouble:
             case NI_AVX_ExtendToVector256:
             case NI_AVX_GetLowerHalf:
+            case NI_AVX2_ConvertToDouble:
             {
                 assert(numArgs == 1);
                 assert(!isRMW);
@@ -2574,6 +2580,16 @@ int LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* intrinsicTree)
                     srcCount += BuildDelayFreeUses(op3);
                 }
 
+                buildUses = false;
+                break;
+            }
+
+            case NI_BMI1_TrailingZeroCount:
+            case NI_LZCNT_LeadingZeroCount:
+            case NI_POPCNT_PopCount:
+            {
+                assert(numArgs == 1);
+                srcCount += BuildDelayFreeUses(op1);
                 buildUses = false;
                 break;
             }
@@ -2818,6 +2834,7 @@ int LinearScan::BuildMul(GenTree* tree)
     }
 
     int       srcCount      = BuildBinaryUses(tree->AsOp());
+    int       dstCount      = 1;
     regMaskTP dstCandidates = RBM_NONE;
 
     bool isUnsignedMultiply    = ((tree->gtFlags & GTF_UNSIGNED) != 0);
@@ -2859,7 +2876,8 @@ int LinearScan::BuildMul(GenTree* tree)
     else if (tree->OperGet() == GT_MUL_LONG)
     {
         // have to use the encoding:RDX:RAX = RAX * rm
-        dstCandidates = RBM_RAX;
+        dstCandidates = RBM_RAX | RBM_RDX;
+        dstCount      = 2;
     }
 #endif
     GenTree* containedMemOp = nullptr;
@@ -2873,7 +2891,7 @@ int LinearScan::BuildMul(GenTree* tree)
         containedMemOp = op2;
     }
     regMaskTP killMask = getKillSetForMul(tree->AsOp());
-    BuildDefsWithKills(tree, 1, dstCandidates, killMask);
+    BuildDefsWithKills(tree, dstCount, dstCandidates, killMask);
     return srcCount;
 }
 

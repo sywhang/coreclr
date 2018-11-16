@@ -200,7 +200,7 @@ namespace System.StubHelpers
 
         internal static unsafe void ConvertToManaged(StringBuilder sb, IntPtr pNative)
         {
-            if (pNative == null)
+            if (pNative == IntPtr.Zero)
                 return;
 
             int nbBytes = StubHelpers.strlen((sbyte*)pNative);
@@ -1693,9 +1693,6 @@ namespace System.StubHelpers
 
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         internal static extern unsafe int strlen(sbyte* ptr);
-
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        internal static extern void DecimalCanonicalizeInternal(ref decimal dec);
 
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         internal static extern unsafe void FmtClassUpdateNativeInternal(object obj, byte* pNative, ref CleanupWorkList pCleanupWorkList);

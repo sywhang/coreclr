@@ -5,11 +5,15 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
+using System.Xml.Serialization;
 
 namespace R2RDump
 {
     public struct R2RSection
     {
+        /// <summary>
+        /// based on <a href="https://github.com/dotnet/coreclr/blob/master/src/inc/readytorun.h">src/inc/readytorun.h</a> ReadyToRunSectionType
+        /// </summary>
         public enum SectionType
         {
             READYTORUN_SECTION_COMPILER_IDENTIFIER = 100,
@@ -28,6 +32,7 @@ namespace R2RDump
         /// <summary>
         /// The ReadyToRun section type
         /// </summary>
+        [XmlAttribute("Index")]
         public SectionType Type { get; set; }
 
         /// <summary>

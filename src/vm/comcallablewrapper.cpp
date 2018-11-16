@@ -958,18 +958,24 @@ void SimpleComCallWrapper::BuildRefCountLogMessage(LPCWSTR wszOperation, StackSS
 
         if (ETW_EVENT_ENABLED(MICROSOFT_WINDOWS_DOTNETRUNTIME_PRIVATE_PROVIDER_Context, CCWRefCountChange)) 
         {
-            SString className;
-            className.SetUTF8(pszClassName);
-            SString nameSpace;
-            nameSpace.SetUTF8(pszNamespace);
+            EX_TRY
+            {
+                SString className;
+                className.SetUTF8(pszClassName);
+                SString nameSpace;
+                nameSpace.SetUTF8(pszNamespace);
 
-            FireEtwCCWRefCountChange(
-                handle, 
-                (Object *)obj, 
-                this, 
-                dwEstimatedRefCount, 
-                NULL,                   // domain value is not interesting in CoreCLR
-                className.GetUnicode(), nameSpace.GetUnicode(), wszOperation, GetClrInstanceId());
+                FireEtwCCWRefCountChange(
+                    handle, 
+                    (Object *)obj, 
+                    this, 
+                    dwEstimatedRefCount, 
+                    NULL,                   // domain value is not interesting in CoreCLR
+                    className.GetUnicode(), nameSpace.GetUnicode(), wszOperation, GetClrInstanceId());
+            }
+            EX_CATCH
+            { }
+            EX_END_CATCH(SwallowAllExceptions);
         }
         
         if (g_pConfig->ShouldLogCCWRefCountChange(pszClassName, pszNamespace))
@@ -1594,9 +1600,6 @@ BOOL SimpleComCallWrapper::SupportsIReflect(MethodTable *pClass)
 
     // We want to disallow passing out IDispatchEx for Type inheritors to close a security hole. 
     if (pClass == g_pRuntimeTypeClass)
-        return FALSE;
-
-    if (MscorlibBinder::IsClass(pClass, CLASS__CLASS_INTROSPECTION_ONLY))
         return FALSE;
 
     if (MscorlibBinder::IsClass(pClass, CLASS__TYPE_BUILDER))
@@ -5524,13 +5527,6 @@ SLOT* ComCallWrapperTemplate::GetVTableSlot(ULONG index)
     RETURN m_rgpIPtr[index];
 }
 
-BOOL ComCallWrapperTemplate::HasInvisibleParent()
-{
-    LIMITED_METHOD_CONTRACT;
-
-    return (m_flags & enum_InvisibleParent);
-}
-
 // Determines whether the template is for a type that cannot be safely marshalled to 
 // an out of proc COM client
 BOOL ComCallWrapperTemplate::IsSafeTypeForMarshalling()
@@ -5565,7 +5561,7 @@ BOOL ComCallWrapperTemplate::IsSafeTypeForMarshalling()
         if (pMt->CanCastToClass(MscorlibBinder::GetClass(CLASS__ASSEMBLYBASE)) ||
         pMt->CanCastToClass(MscorlibBinder::GetClass(CLASS__MEMBER)) ||
         pMt->CanCastToClass(MscorlibBinder::GetClass(CLASS__MODULEBASE)) ||
-        pMt->CanCastToClass(MscorlibBinder::GetClass(CLASS__METHOD_BODY)) ||
+        pMt->CanCastToClass(MscorlibBinder::GetClass(CLASS__RUNTIME_METHOD_BODY)) ||
         pMt->CanCastToClass(MscorlibBinder::GetClass(CLASS__PARAMETER)))
         {
             isSafe = FALSE;
@@ -5652,7 +5648,7 @@ DefaultInterfaceType ComCallWrapperTemplate::GetDefaultInterface(MethodTable **p
     }
 
     *ppDefaultItf = m_pDefaultItf;
-    return (DefaultInterfaceType)(m_flags & enum_DefaultInterfaceType);
+    return (DefaultInterfaceType)(m_flags & enum_DefaultInterfaceTypeMask);
 }
 
 //--------------------------------------------------------------------------

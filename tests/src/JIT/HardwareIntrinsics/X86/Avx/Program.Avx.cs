@@ -113,6 +113,10 @@ namespace JIT.HardwareIntrinsics.X86
                 ["GetLowerHalf.UInt16"] = GetLowerHalfUInt16,
                 ["GetLowerHalf.UInt32"] = GetLowerHalfUInt32,
                 ["GetLowerHalf.UInt64"] = GetLowerHalfUInt64,
+                ["MaskLoad.Double"] = MaskLoadDouble,
+                ["MaskLoad.Single"] = MaskLoadSingle,
+                ["MaskStore.Double"] = MaskStoreDouble,
+                ["MaskStore.Single"] = MaskStoreSingle,
                 ["Max.Double"] = MaxDouble,
                 ["Max.Single"] = MaxSingle,
                 ["Min.Double"] = MinDouble,
@@ -125,8 +129,6 @@ namespace JIT.HardwareIntrinsics.X86
                 ["Permute.Double.1"] = PermuteDouble1,
                 ["Permute.Single.2"] = PermuteSingle2,
                 ["Permute.Double.2"] = PermuteDouble2,
-                ["PermuteVar.Single"] = PermuteVarSingle,
-                ["PermuteVar.Double"] = PermuteVarDouble,
                 ["RoundCurrentDirection.Double"] = RoundCurrentDirectionDouble,
                 ["RoundCurrentDirection.Single"] = RoundCurrentDirectionSingle,
                 ["RoundToNearestInteger.Double"] = RoundToNearestIntegerDouble,
@@ -165,8 +167,8 @@ namespace JIT.HardwareIntrinsics.X86
                 ["TestZ.UInt16"] = TestZUInt16,
                 ["TestZ.UInt32"] = TestZUInt32,
                 ["TestZ.UInt64"] = TestZUInt64,
-                ["Xor.Double"] = XorDouble,
                 ["Xor.Single"] = XorSingle,
+                ["Xor.Double"] = XorDouble,
             };
         }
     }

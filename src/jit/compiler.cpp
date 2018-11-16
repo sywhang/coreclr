@@ -1449,8 +1449,6 @@ void Compiler::compShutdown()
     DisplayNowayAssertMap();
 #endif // MEASURE_NOWAY
 
-    ArenaAllocator::shutdown();
-
     /* Shut down the emitter */
 
     emitter::emitDone();
@@ -1966,9 +1964,7 @@ void Compiler::compInit(ArenaAllocator* pAlloc, InlineInfo* inlineInfo)
         impSpillCliquePredMembers = JitExpandArray<BYTE>(getAllocator());
         impSpillCliqueSuccMembers = JitExpandArray<BYTE>(getAllocator());
 
-        memset(&lvMemoryPerSsaData, 0, sizeof(PerSsaArray));
-        lvMemoryPerSsaData.Init(getAllocator());
-        lvMemoryNumSsaNames = 0;
+        lvMemoryPerSsaData = SsaDefArray<SsaMemDef>();
 
         //
         // Initialize all the per-method statistics gathering data structures.
@@ -2367,14 +2363,18 @@ static bool configEnableISA(InstructionSet isa)
             return false;
     }
 #else
-    // We have a retail config switch that can disable AVX/FMA/AVX2 instructions
-    if ((isa == InstructionSet_AVX) || (isa == InstructionSet_FMA) || (isa == InstructionSet_AVX2))
+    // We have a retail config switch that can disable instruction sets reliant on the VEX encoding
+    switch (isa)
     {
-        return JitConfig.EnableAVX() != 0;
-    }
-    else
-    {
-        return true;
+        case InstructionSet_AVX:
+        case InstructionSet_FMA:
+        case InstructionSet_AVX2:
+        case InstructionSet_BMI1:
+        case InstructionSet_BMI2:
+            return JitConfig.EnableAVX() != 0;
+
+        default:
+            return true;
     }
 #endif
 }
@@ -2437,20 +2437,6 @@ void Compiler::compSetProcessor()
                 opts.setSupportedISA(InstructionSet_AES);
             }
         }
-        if (jitFlags.IsSet(JitFlags::JIT_FLAG_USE_BMI1))
-        {
-            if (configEnableISA(InstructionSet_BMI1))
-            {
-                opts.setSupportedISA(InstructionSet_BMI1);
-            }
-        }
-        if (jitFlags.IsSet(JitFlags::JIT_FLAG_USE_BMI2))
-        {
-            if (configEnableISA(InstructionSet_BMI2))
-            {
-                opts.setSupportedISA(InstructionSet_BMI2);
-            }
-        }
         if (jitFlags.IsSet(JitFlags::JIT_FLAG_USE_LZCNT))
         {
             if (configEnableISA(InstructionSet_LZCNT))
@@ -2508,7 +2494,7 @@ void Compiler::compSetProcessor()
             }
         }
 
-        // There are currently two sets of flags that control AVX, FMA, and AVX2 support:
+        // There are currently two sets of flags that control instruction sets that require the VEX encoding:
         // These are the general EnableAVX flag and the individual ISA flags. We need to
         // check both for any given isa.
         if (JitConfig.EnableAVX())
@@ -2532,6 +2518,20 @@ void Compiler::compSetProcessor()
                 if (configEnableISA(InstructionSet_AVX2))
                 {
                     opts.setSupportedISA(InstructionSet_AVX2);
+                }
+            }
+            if (jitFlags.IsSet(JitFlags::JIT_FLAG_USE_BMI1))
+            {
+                if (configEnableISA(InstructionSet_BMI1))
+                {
+                    opts.setSupportedISA(InstructionSet_BMI1);
+                }
+            }
+            if (jitFlags.IsSet(JitFlags::JIT_FLAG_USE_BMI2))
+            {
+                if (configEnableISA(InstructionSet_BMI2))
+                {
+                    opts.setSupportedISA(InstructionSet_BMI2);
                 }
             }
         }
@@ -3264,6 +3264,7 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
     opts.disDiffable     = false;
     opts.dspCode         = false;
     opts.dspEHTable      = false;
+    opts.dspDebugInfo    = false;
     opts.dspGCtbls       = false;
     opts.disAsm2         = false;
     opts.dspUnwind       = false;
@@ -3311,6 +3312,11 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
             if (JitConfig.NgenEHDump().contains(info.compMethodName, info.compClassName, &info.compMethodInfo->args))
             {
                 opts.dspEHTable = true;
+            }
+
+            if (JitConfig.NgenDebugDump().contains(info.compMethodName, info.compClassName, &info.compMethodInfo->args))
+            {
+                opts.dspDebugInfo = true;
             }
         }
         else
@@ -3372,6 +3378,12 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
                 if (JitConfig.JitEHDump().contains(info.compMethodName, info.compClassName, &info.compMethodInfo->args))
                 {
                     opts.dspEHTable = true;
+                }
+
+                if (JitConfig.JitDebugDump().contains(info.compMethodName, info.compClassName,
+                                                      &info.compMethodInfo->args))
+                {
+                    opts.dspDebugInfo = true;
                 }
             }
         }
@@ -4630,8 +4642,8 @@ void Compiler::compCompile(void** methodCodePtr, ULONG* methodCodeSize, JitFlags
     /* From this point on the flowgraph information such as bbNum,
      * bbRefs or bbPreds has to be kept updated */
 
-    // Compute the edge weights (if we have profile data)
-    fgComputeEdgeWeights();
+    // Compute the block and edge weights
+    fgComputeBlockAndEdgeWeights();
     EndPhase(PHASE_COMPUTE_EDGE_WEIGHTS);
 
 #if FEATURE_EH_FUNCLETS
@@ -4693,7 +4705,7 @@ void Compiler::compCompile(void** methodCodePtr, ULONG* methodCodeSize, JitFlags
     // You can test the value of the following variable to see if
     // the local variable ref counts must be updated
     //
-    assert(lvaLocalVarRefCounted == true);
+    assert(lvaLocalVarRefCounted());
 
     if (!opts.MinOpts() && !opts.compDbgCode)
     {
@@ -4910,8 +4922,7 @@ void Compiler::compCompile(void** methodCodePtr, ULONG* methodCodeSize, JitFlags
     StackLevelSetter stackLevelSetter(this); // PHASE_STACK_LEVEL_SETTER
     stackLevelSetter.Run();
 
-    assert(lvaSortAgain == false); // We should have re-run fgLocalVarLiveness() in lower.Run()
-    lvaTrackedFixed = true;        // We can not add any new tracked variables after this point.
+    lvaTrackedFixed = true; // We can not add any new tracked variables after this point.
 
     /* Now that lowering is completed we can proceed to perform register allocation */
     m_pLinearScan->doLinearScan();
@@ -6619,7 +6630,6 @@ START:
     }
     else
     {
-        alloc.initialize(compHnd->getMemoryManager());
         pAlloc = &alloc;
     }
 
@@ -6715,17 +6725,18 @@ START:
         }
         finallyErrorTrap()
         {
-            // Add a dummy touch to pComp so that it is kept alive, and is easy to get to
-            // during debugging since all other data can be obtained through it.
+            Compiler* pCompiler = pParamOuter->pComp;
+
+            // If OOM is thrown when allocating memory for a pComp, we will end up here.
+            // For this case, pComp and also pCompiler will be a nullptr
             //
-            if (pParamOuter->pComp) // If OOM is thrown when allocating memory for pComp, we will end up here.
-                                    // In that case, pComp is still NULL.
+            if (pCompiler != nullptr)
             {
-                pParamOuter->pComp->info.compCode = nullptr;
+                pCompiler->info.compCode = nullptr;
 
                 // pop the compiler off the TLS stack only if it was linked above
-                assert(JitTls::GetCompiler() == pParamOuter->pComp);
-                JitTls::SetCompiler(JitTls::GetCompiler()->prevCompiler);
+                assert(JitTls::GetCompiler() == pCompiler);
+                JitTls::SetCompiler(pCompiler->prevCompiler);
             }
 
             if (pParamOuter->inlineInfo == nullptr)
@@ -8588,7 +8599,7 @@ void dBlockList(BasicBlockList* list)
     printf("WorkList: ");
     while (list != nullptr)
     {
-        printf("BB%02u ", list->block->bbNum);
+        printf(FMT_BB " ", list->block->bbNum);
         list = list->next;
     }
     printf("\n");
@@ -8765,19 +8776,19 @@ void cLoopIR(Compiler* comp, Compiler::LoopDsc* loop)
 
     printf("LOOP\n");
     printf("\n");
-    printf("HEAD   BB%02u\n", blockHead->bbNum);
-    printf("FIRST  BB%02u\n", blockFirst->bbNum);
-    printf("TOP    BB%02u\n", blockTop->bbNum);
-    printf("ENTRY  BB%02u\n", blockEntry->bbNum);
+    printf("HEAD   " FMT_BB "\n", blockHead->bbNum);
+    printf("FIRST  " FMT_BB "\n", blockFirst->bbNum);
+    printf("TOP    " FMT_BB "\n", blockTop->bbNum);
+    printf("ENTRY  " FMT_BB "\n", blockEntry->bbNum);
     if (loop->lpExitCnt == 1)
     {
-        printf("EXIT   BB%02u\n", blockExit->bbNum);
+        printf("EXIT   " FMT_BB "\n", blockExit->bbNum);
     }
     else
     {
         printf("EXITS  %u", loop->lpExitCnt);
     }
-    printf("BOTTOM BB%02u\n", blockBottom->bbNum);
+    printf("BOTTOM " FMT_BB "\n", blockBottom->bbNum);
     printf("\n");
 
     cBlockIR(comp, blockHead);
@@ -8856,7 +8867,7 @@ void cBlockIR(Compiler* comp, BasicBlock* block)
     }
     else
     {
-        printf("BB%02u:\n", block->bbNum);
+        printf(FMT_BB ":\n", block->bbNum);
     }
 
     printf("\n");
@@ -8920,7 +8931,7 @@ void cBlockIR(Compiler* comp, BasicBlock* block)
         case BBJ_EHCATCHRET:
             chars += printf("BRANCH(EHCATCHRETURN)");
             chars += dTabStopIR(chars, COLUMN_OPERANDS);
-            chars += printf(" BB%02u", block->bbJumpDest->bbNum);
+            chars += printf(" " FMT_BB, block->bbJumpDest->bbNum);
             break;
 
         case BBJ_THROW:
@@ -8939,7 +8950,7 @@ void cBlockIR(Compiler* comp, BasicBlock* block)
         case BBJ_ALWAYS:
             chars += printf("BRANCH(ALWAYS)");
             chars += dTabStopIR(chars, COLUMN_OPERANDS);
-            chars += printf(" BB%02u", block->bbJumpDest->bbNum);
+            chars += printf(" " FMT_BB, block->bbJumpDest->bbNum);
             if (block->bbFlags & BBF_KEEP_BBJ_ALWAYS)
             {
                 chars += dTabStopIR(chars, COLUMN_KINDS);
@@ -8950,19 +8961,19 @@ void cBlockIR(Compiler* comp, BasicBlock* block)
         case BBJ_LEAVE:
             chars += printf("BRANCH(LEAVE)");
             chars += dTabStopIR(chars, COLUMN_OPERANDS);
-            chars += printf(" BB%02u", block->bbJumpDest->bbNum);
+            chars += printf(" " FMT_BB, block->bbJumpDest->bbNum);
             break;
 
         case BBJ_CALLFINALLY:
             chars += printf("BRANCH(CALLFINALLY)");
             chars += dTabStopIR(chars, COLUMN_OPERANDS);
-            chars += printf(" BB%02u", block->bbJumpDest->bbNum);
+            chars += printf(" " FMT_BB, block->bbJumpDest->bbNum);
             break;
 
         case BBJ_COND:
             chars += printf("BRANCH(COND)");
             chars += dTabStopIR(chars, COLUMN_OPERANDS);
-            chars += printf(" BB%02u", block->bbJumpDest->bbNum);
+            chars += printf(" " FMT_BB, block->bbJumpDest->bbNum);
             break;
 
         case BBJ_SWITCH:
@@ -8975,7 +8986,7 @@ void cBlockIR(Compiler* comp, BasicBlock* block)
             jumpTab = block->bbJumpSwt->bbsDstTab;
             do
             {
-                chars += printf("%c BB%02u", (jumpTab == block->bbJumpSwt->bbsDstTab) ? ' ' : ',', (*jumpTab)->bbNum);
+                chars += printf("%c " FMT_BB, (jumpTab == block->bbJumpSwt->bbsDstTab) ? ' ' : ',', (*jumpTab)->bbNum);
             } while (++jumpTab, --jumpCnt);
             break;
 
@@ -9774,7 +9785,7 @@ int cValNumIR(Compiler* comp, GenTree* tree)
         {
             chars += printf("<v:");
             vn = vnp.GetLiberal();
-            chars += printf(STR_VN "%x", vn);
+            chars += printf(FMT_VN, vn);
             if (ValueNumStore::isReservedVN(vn))
             {
                 chars += printf("R");
@@ -9785,14 +9796,14 @@ int cValNumIR(Compiler* comp, GenTree* tree)
         {
             vn = vnp.GetLiberal();
             chars += printf("<v:");
-            chars += printf(STR_VN "%x", vn);
+            chars += printf(FMT_VN, vn);
             if (ValueNumStore::isReservedVN(vn))
             {
                 chars += printf("R");
             }
             chars += printf(",");
             vn = vnp.GetConservative();
-            chars += printf(STR_VN "%x", vn);
+            chars += printf(FMT_VN, vn);
             if (ValueNumStore::isReservedVN(vn))
             {
                 chars += printf("R");
@@ -10169,7 +10180,7 @@ int cLeafIR(Compiler* comp, GenTree* tree)
 
             if (tree->gtLabel.gtLabBB)
             {
-                chars += printf("BB%02u", tree->gtLabel.gtLabBB->bbNum);
+                chars += printf(FMT_BB, tree->gtLabel.gtLabBB->bbNum);
             }
             else
             {
@@ -10296,7 +10307,7 @@ int cOperandIR(Compiler* comp, GenTree* operand)
         }
         chars += cLeafIR(comp, operand);
     }
-    else if (dumpDataflow && (operand->OperIsAssignment() || (op == GT_STORE_LCL_VAR) || (op == GT_STORE_LCL_FLD)))
+    else if (dumpDataflow && (operand->OperIs(GT_ASG) || (op == GT_STORE_LCL_VAR) || (op == GT_STORE_LCL_FLD)))
     {
         operand = operand->GetChild(0);
         chars += cOperandIR(comp, operand);
@@ -10568,7 +10579,7 @@ void cNodeIR(Compiler* comp, GenTree* tree)
     // }
 
     chars += printf("    ");
-    if (dataflowView && tree->OperIsAssignment())
+    if (dataflowView && tree->OperIs(GT_ASG))
     {
         child = tree->GetChild(0);
         chars += cOperandIR(comp, child);
@@ -10621,7 +10632,7 @@ void cNodeIR(Compiler* comp, GenTree* tree)
 
     if (dataflowView)
     {
-        if (tree->OperIsAssignment() || (op == GT_STORE_LCL_VAR) || (op == GT_STORE_LCL_FLD) || (op == GT_STOREIND))
+        if (tree->OperIs(GT_ASG) || (op == GT_STORE_LCL_VAR) || (op == GT_STORE_LCL_FLD) || (op == GT_STOREIND))
         {
             chars += printf("(t%d)", tree->gtTreeID);
         }

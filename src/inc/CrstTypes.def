@@ -353,7 +353,7 @@ Crst NativeImageCache
 End
 
 Crst GCCover
-    AcquiredBefore LoaderHeap
+    AcquiredBefore LoaderHeap ReJITSharedDomainTable
 End
 
 Crst GCMemoryPressure
@@ -790,4 +790,8 @@ End
 
 Crst ReadyToRunEntryPointToMethodDescMap
     AcquiredBefore ExecuteManRangeLock UniqueStack
+End
+
+Crst TieredCompilation
+    AcquiredBefore ThreadpoolTimerQueue
 End
