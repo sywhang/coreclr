@@ -301,6 +301,12 @@ public:
     // Get next event.
     static EventPipeEventInstance *GetNextEvent();
 
+#ifdef DEBUG
+    static bool IsLockOwnedByCurrentThread();
+    static bool IsBufferManagerLockOwnedByCurrentThread();
+#endif
+
+
 private:
     // The counterpart to WriteEvent which after the payload is constructed
     static void WriteEventInternal(EventPipeEvent &event, EventPipeEventPayload &payload, LPCGUID pActivityId = NULL, LPCGUID pRelatedActivityId = NULL);
