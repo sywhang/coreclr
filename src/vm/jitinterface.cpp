@@ -98,6 +98,10 @@ GARY_IMPL(VMHELPDEF, hlpDynamicFuncTable, DYNAMIC_CORINFO_HELP_COUNT);
 
 #else // DACCESS_COMPILE
 
+#if FEATURE_EVENT_TRACE
+UINT64 g_cbILJitted = 0;
+#endif // FEATURE_EVENT_TRACE
+
 /*********************************************************************/
 
 inline CORINFO_MODULE_HANDLE GetScopeHandle(MethodDesc* method) 
@@ -12968,6 +12972,11 @@ PCODE UnsafeJitFunction(NativeCodeVersion nativeCodeVersion, COR_ILMETHOD_DECODE
                                                   &sizeOfCode,
                                                   nativeCodeVersion);
             LOG((LF_CORDB, LL_EVERYTHING, "Got through CallCompile MethodWithSEHWrapper\n"));
+
+#if FEATURE_EVENT_TRACE
+            g_cbILJitted += methodInfo.ILCodeSize;
+#endif // FEATURE_EVENT_TRACE
+
 
 #if FEATURE_PERFMAP
             // Save the code size so that it can be reported to the perfmap.
