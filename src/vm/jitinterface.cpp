@@ -8195,7 +8195,7 @@ void CEEInfo::reportInliningDecision (CORINFO_METHOD_HANDLE inlinerHnd,
 #endif //_DEBUG
 
     //I'm gonna duplicate this code because the format is slightly different.  And LoggingOn is debug only.
-    if (ETW_TRACING_CATEGORY_ENABLED(MICROSOFT_WINDOWS_DOTNETRUNTIME_PROVIDER_Context, 
+    if (ETW_TRACING_CATEGORY_ENABLED(MICROSOFT_WINDOWS_DOTNETRUNTIME_PROVIDER_DOTNET_Context, 
                                      TRACE_LEVEL_VERBOSE,
                                      CLR_JITTRACING_KEYWORD))
     {
@@ -8547,7 +8547,7 @@ void CEEInfo::reportTailCallDecision (CORINFO_METHOD_HANDLE callerHnd,
 #endif //_DEBUG
 
     // I'm gonna duplicate this code because the format is slightly different.  And LoggingOn is debug only.
-    if (ETW_TRACING_CATEGORY_ENABLED(MICROSOFT_WINDOWS_DOTNETRUNTIME_PROVIDER_Context, 
+    if (ETW_TRACING_CATEGORY_ENABLED(MICROSOFT_WINDOWS_DOTNETRUNTIME_PROVIDER_DOTNET_Context, 
                                      TRACE_LEVEL_VERBOSE,
                                      CLR_JITTRACING_KEYWORD))
     {
