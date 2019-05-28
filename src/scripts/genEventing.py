@@ -562,18 +562,27 @@ typedef struct _PROVIDER_KEYWORD
     WCHAR const * Name;
     ULONGLONG const mask;
 } PROVIDER_KEYWORD;
- typedef struct _PROVIDER_CONTEXT
+typedef struct _LTTNG_PROVIDER_CONTEXT
 {
     WCHAR const * Name;
     UCHAR Level;
     bool IsEnabled;
     ULONGLONG EnabledKeywordsBitmask;
-} PROVIDER_CONTEXT;
- typedef struct _EVENT_DESCRIPTOR
+} LTTNG_PROVIDER_CONTEXT;
+typedef struct _EVENT_DESCRIPTOR
 {
     int const Level;
     ULONGLONG const KeywordsBitmask;
 } EVENT_DESCRIPTOR;
+
+#if !defined(DOTNET_TRACE_CONTEXT_DEF)
+#define DOTNET_TRACE_CONTEXT_DEF
+typedef struct _DOTNET_TRACE_CONTEXT
+{
+    LTTNG_PROVIDER_CONTEXT lttngProvider;
+} DOTNET_TRACE_CONTEXT, *PDOTNET_TRACE_CONTEXT;
+#endif // DOTNET_TRACE_CONTEXT_DEF
+
 """)
         allProviders = []
         nbProviders = 0
@@ -596,7 +605,7 @@ typedef struct _PROVIDER_KEYWORD
                 nbKeywords += 1
 
             Clrproviders.write("\n")
-            Clrproviders.write('EXTERN_C __declspec(selectany) PROVIDER_CONTEXT ' + providerSymbol + '_Context = { W("' + providerName + '"), 0, false, 0 };\n')
+            Clrproviders.write('EXTERN_C __declspec(selectany) LTTNG_PROVIDER_CONTEXT ' + providerSymbol + '_LTTNG_Context = { W("' + providerName + '"), 0, false, 0 };\n')
 
             for eventNode in providerNode.getElementsByTagName('event'):
                 levelName = eventNode.getAttribute('level')
@@ -606,12 +615,15 @@ typedef struct _PROVIDER_KEYWORD
                 Clrproviders.write("EXTERN_C __declspec(selectany) EVENT_DESCRIPTOR const " + symbolName + " = { " + str(level) + ", " + hex(getKeywordsMaskCombined(keywords, keywordsToMask)) + " };\n")
 
 
-            allProviders.append("&" + providerSymbol + "_Context")
+            Clrproviders.write("EXTERN_C __declspec(selectany) DOTNET_TRACE_CONTEXT const " + providerSymbol + "_DOTNET_Context = { " + providerSymbol+"_LTTNG_Context };\n");
+
+            allProviders.append(providerSymbol + "_DOTNET_Context")
             nbProviders += 1
         Clrproviders.write("#define NB_PROVIDERS " + str(nbProviders) + "\n")
-        Clrproviders.write("EXTERN_C __declspec(selectany) PROVIDER_CONTEXT * const ALL_PROVIDERS_CONTEXT[NB_PROVIDERS] = {")
+        Clrproviders.write("EXTERN_C __declspec(selectany) DOTNET_TRACE_CONTEXT ALL_PROVIDERS_CONTEXT[NB_PROVIDERS] = {")
         Clrproviders.write(", ".join(allProviders))
         Clrproviders.write(" };\n")
+
 
 
     clreventpipewriteevents = os.path.join(incDir, "clreventpipewriteevents.h")
