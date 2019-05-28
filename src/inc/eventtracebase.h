@@ -232,15 +232,344 @@ public:
 
 #if defined(FEATURE_EVENT_TRACE) || defined(FEATURE_EVENTSOURCE_XPLAT)
 
+#define KEYWORDZERO 0x0
+
+/***************************************/
+/* Tracing levels supported by CLR ETW */
+/***************************************/
+#define ETWMAX_TRACE_LEVEL 6        // Maximum Number of Trace Levels supported
+#define TRACE_LEVEL_NONE        0   // Tracing is not on
+#define TRACE_LEVEL_FATAL       1   // Abnormal exit or termination
+#define TRACE_LEVEL_ERROR       2   // Severe errors that need logging
+#define TRACE_LEVEL_WARNING     3   // Warnings such as allocation failure
+#define TRACE_LEVEL_INFORMATION 4   // Includes non-error cases such as Entry-Exit
+#define TRACE_LEVEL_VERBOSE     5   // Detailed traces from intermediate steps
+
+#include "clrproviders.h"
+
+
 #include "clrconfig.h"
- class XplatEventLogger
+class XplatEventLoggerConfiguration
 {
+public:
+    XplatEventLoggerConfiguration() = default;
+
+    XplatEventLoggerConfiguration(XplatEventLoggerConfiguration const & other) = delete;
+    XplatEventLoggerConfiguration(XplatEventLoggerConfiguration && other)
+    {
+        _provider = std::move(other._provider);
+        _isValid = other._isValid;
+        _enabledKeywords = other._enabledKeywords;
+        _level = other._level;
+    }
+
+     ~XplatEventLoggerConfiguration()
+    {
+        delete[] _provider;
+        _provider = nullptr;
+    }
+
+     void Initialize(LPWSTR configString)
+    {
+        Parse(configString);
+    }
+
+     bool IsValid() const
+    {
+        return _isValid;
+    }
+
+     LPCWSTR GetProviderName() const
+    {
+        return _provider;
+    }
+
+     ULONGLONG GetEnabledKeywordsMask() const
+    {
+        return _enabledKeywords;
+    }
+
+     UINT GetLevel() const
+    {
+        return _level;
+    }
+private:
+
+    struct ComponentSpan
+    {
+    public:
+        ComponentSpan(LPCWSTR start, LPCWSTR end)
+        : Start(start), End(end)
+        {
+        }
+        LPCWSTR Start;
+        LPCWSTR End;
+    };
+
+    void Parse(LPWSTR configString)
+    {
+        if (configString == nullptr || *configString == L'\0')
+        {
+            _provider = W("*");
+            _enabledKeywords =  (ULONGLONG)(-1);
+            _level  = TRACE_LEVEL_VERBOSE;
+            return;
+        }
+
+        auto providerComponent =  GetNextComponentString(configString);
+        _provider = ParseProviderName(providerComponent);
+        if (_provider == nullptr)
+        {
+            _isValid = false;
+            return;
+        }
+
+         auto keywordsComponent = GetNextComponentString(providerComponent.End + 1);
+        _enabledKeywords = ParseEnabledKeywordsMask(keywordsComponent);
+
+         auto levelComponent = GetNextComponentString(keywordsComponent.End + 1);
+        _level = ParseEnabledKeywordsMask(levelComponent);
+
+         _isValid = true;
+    }
+
+    ComponentSpan GetNextComponentString(LPCWSTR start) const
+    {
+        static WCHAR ComponentDelimiter = W(':');
+
+        auto end = wcschr(start, ComponentDelimiter);
+        if (end == nullptr)
+        {
+            end = start + wcslen(start);
+        }
+
+        return ComponentSpan(start, end);
+    }
+
     public:
         inline static BOOL  IsEventLoggingEnabled()
         {
             static ConfigDWORD configEventLogging;
             return configEventLogging.val(CLRConfig::EXTERNAL_EnableEventLog);
         }
+            LPCWSTR ParseProviderName(ComponentSpan const & component) const
+    {
+        auto providerName = (WCHAR*)nullptr;
+        if ((component.End - component.Start) != 0)
+        {
+            auto const length = component.End - component.Start;
+            providerName = new WCHAR[length + 1];
+            memset(providerName, '\0', (length + 1) * sizeof(WCHAR));
+            wcsncpy(providerName, component.Start, length);
+        }
+        return providerName;
+    }
+
+    ULONGLONG ParseEnabledKeywordsMask(ComponentSpan const & component) const
+    {
+        auto enabledKeywordsMask = (ULONGLONG)(-1);
+        if ((component.End - component.Start) != 0)
+        {
+            enabledKeywordsMask = _wcstoui64(component.Start, nullptr, 16);
+        }
+        return enabledKeywordsMask;
+    }
+
+    UINT ParseLevel(ComponentSpan const & component) const
+    {
+        auto level = TRACE_LEVEL_VERBOSE;
+        if ((component.End - component.Start) != 0)
+        {
+            level = _wtoi(component.Start);
+        }
+        return level;
+    }
+
+    LPCWSTR _provider;
+    ULONGLONG _enabledKeywords;
+    UINT _level;
+    bool _isValid;
+};
+class XplatEventLoggerController
+{
+public:
+
+     static void Initialize(XplatEventLoggerConfiguration const &config)
+    {
+        if (!config.IsValid())
+        {
+            return;
+        }
+
+         auto providerName = config.GetProviderName();
+        auto enabledKeywordsMask = config.GetEnabledKeywordsMask();
+        auto level = config.GetLevel();
+        if (wcslen(providerName) == 1 && _wcsicmp(providerName, W("*")) == 0 && enabledKeywordsMask == (ULONGLONG)(-1) && level == TRACE_LEVEL_VERBOSE)
+        {
+            ActivateAllKeywordsOfAllProviders();
+        }
+        else
+        {
+            auto provider = GetProvider(providerName);
+            if (provider == nullptr)
+            {
+                return;
+            }
+            provider->EnabledKeywordsBitmask = enabledKeywordsMask;
+            provider->Level = level;
+            provider->IsEnabled = true;
+        }
+    }
+
+ private:
+
+     static PROVIDER_CONTEXT * const GetProvider(LPCWSTR providerName)
+    {
+        auto length = wcslen(providerName);
+        for(auto provider : ALL_PROVIDERS_CONTEXT)
+        {
+            if (wcslen(provider->Name) == length && _wcsicmp(provider->Name, providerName) == 0)
+            {
+                return provider;
+            }
+        }
+        return nullptr;
+    }
+
+     static void ActivateAllKeywordsOfAllProviders()
+    {
+        for(PROVIDER_CONTEXT * const  provider : ALL_PROVIDERS_CONTEXT)
+        {
+            provider->EnabledKeywordsBitmask = (ULONGLONG)(-1);
+            provider->Level = TRACE_LEVEL_VERBOSE;
+            provider->IsEnabled = true;
+        }
+    }
+};
+
+class XplatEventLoggerController
+{
+public:
+
+     static void Initialize(XplatEventLoggerConfiguration const &config)
+    {
+        if (!config.IsValid())
+        {
+            return;
+        }
+
+         auto providerName = config.GetProviderName();
+        auto enabledKeywordsMask = config.GetEnabledKeywordsMask();
+        auto level = config.GetLevel();
+        if (wcslen(providerName) == 1 && _wcsicmp(providerName, W("*")) == 0 && enabledKeywordsMask == (ULONGLONG)(-1) && level == TRACE_LEVEL_VERBOSE)
+        {
+            ActivateAllKeywordsOfAllProviders();
+        }
+        else
+        {
+            auto provider = GetProvider(providerName);
+            if (provider == nullptr)
+            {
+                return;
+            }
+            provider->EnabledKeywordsBitmask = enabledKeywordsMask;
+            provider->Level = level;
+            provider->IsEnabled = true;
+        }
+    }
+
+ private:
+
+     static PROVIDER_CONTEXT * const GetProvider(LPCWSTR providerName)
+    {
+        auto length = wcslen(providerName);
+        for(auto provider : ALL_PROVIDERS_CONTEXT)
+        {
+            if (wcslen(provider->Name) == length && _wcsicmp(provider->Name, providerName) == 0)
+            {
+                return provider;
+            }
+        }
+        return nullptr;
+    }
+
+     static void ActivateAllKeywordsOfAllProviders()
+    {
+        for(PROVIDER_CONTEXT * const  provider : ALL_PROVIDERS_CONTEXT)
+        {
+            provider->EnabledKeywordsBitmask = (ULONGLONG)(-1);
+            provider->Level = TRACE_LEVEL_VERBOSE;
+            provider->IsEnabled = true;
+        }
+    }
+};
+
+ class XplatEventLogger
+{
+public:
+
+     inline static BOOL IsEventLoggingEnabled()
+    {
+        static ConfigDWORD configEventLogging;
+        return configEventLogging.val(CLRConfig::EXTERNAL_EnableEventLog);
+    }
+
+     inline static bool IsProviderEnabled(PROVIDER_CONTEXT providerCtx)
+    {
+        if (!IsInitialized())
+        {
+            return false;
+        }
+        return providerCtx.IsEnabled;
+    }
+
+     inline static bool IsKeywordEnabled(PROVIDER_CONTEXT providerCtx, UCHAR level, ULONGLONG keyword)
+    {
+        if (!IsInitialized())
+        {
+            return false;
+        }
+
+         if (!providerCtx.IsEnabled)
+        {
+            return false;
+        }
+
+         if ((level <= providerCtx.Level) || (providerCtx.Level == 0))
+        {
+            if ((keyword == 0) || ((keyword & providerCtx.EnabledKeywordsBitmask) != 0))
+            {
+                return true;
+            }
+        }
+
+         return false;
+    }
+
+ private:
+
+     static bool IsInitialized()
+    {
+        static bool initialize = InitializeLogger();
+        return initialize;
+    }
+
+     static bool InitializeLogger()
+    {
+        if (!IsEventLoggingEnabled())
+        {
+            return false;
+        }
+
+         LPWSTR xplatEventConfig = NULL;
+        CLRConfig::GetConfigValue(CLRConfig::EXTERNAL_EventLoggerConfig, &xplatEventConfig);
+
+         auto configuration = XplatEventLoggerConfiguration();
+        configuration.Initialize(xplatEventConfig);
+
+         XplatEventLoggerController::Initialize(configuration);
+        return configuration.IsValid();
+    }
 };
 
 #endif //defined(FEATURE_EVENT_TRACE)

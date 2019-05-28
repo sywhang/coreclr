@@ -502,6 +502,30 @@ def generateEtmDummyHeader(sClrEtwAllMan,clretwdummy):
             #pal: create etmdummy.h
             Clretwdummy.write(generateclrEtwDummy(eventNodes, allTemplates) + "\n")
 
+def convertToLevelId(level):
+    if level == "win:LogAlways":
+       return 0
+    if level == "win:Critical":
+       return 1
+    if level == "win:Error":
+       return 2
+    if level == "win:Warning":
+       return 3
+    if level == "win:Informational":
+       return 4
+    if level == "win:Verbose":
+       return 5
+    raise Exception("unknown level " + level)
+
+def getKeywordsMaskCombined(keywords, keywordsToMask):
+    mask = 0
+    for keyword in keywords.split(" "):
+       if keyword == "":
+          continue
+       mask |= keywordsToMask[keyword]
+
+    return mask
+
 def generatePlatformIndependentFiles(sClrEtwAllMan, incDir, etmDummyFile, extern, write_xplatheader):
 
     generateEtmDummyHeader(sClrEtwAllMan,etmDummyFile)
@@ -529,6 +553,65 @@ def generatePlatformIndependentFiles(sClrEtwAllMan, incDir, etmDummyFile, extern
 
             #vm header:
             Clrallevents.write(generateClrallEvents(eventNodes, allTemplates) + "\n")
+    
+    clrproviders = os.path.join(incDir, "clrproviders.h")
+    with open_for_update(clrproviders) as Clrproviders:
+        Clrproviders.write("""
+typedef struct _PROVIDER_KEYWORD
+{
+    WCHAR const * Name;
+    ULONGLONG const mask;
+} PROVIDER_KEYWORD;
+ typedef struct _PROVIDER_CONTEXT
+{
+    WCHAR const * Name;
+    UCHAR Level;
+    bool IsEnabled;
+    ULONGLONG EnabledKeywordsBitmask;
+} PROVIDER_CONTEXT;
+ typedef struct _EVENT_DESCRIPTOR
+{
+    int const Level;
+    ULONGLONG const KeywordsBitmask;
+} EVENT_DESCRIPTOR;
+""")
+        allProviders = []
+        nbProviders = 0
+        for providerNode in tree.getElementsByTagName('provider'):
+            keywords = []
+            keywordsToMask = {}
+            providerName = str(providerNode.getAttribute('name'))
+            providerSymbol = str(providerNode.getAttribute('symbol'))
+            nbKeywords = 0
+
+            Clrproviders.write("// Keywords\n");
+            for keywordNode in providerNode.getElementsByTagName('keyword'):
+                keywordName = keywordNode.getAttribute('name')
+                keywordMask = keywordNode.getAttribute('mask')
+                keywordSymbol = keywordNode.getAttribute('symbol')
+                Clrproviders.write("#define " + keywordSymbol + " " + keywordMask + "\n")
+
+                keywords.append("{ \"" + keywordName + "\", " + keywordMask + " }")
+                keywordsToMask[keywordName] = int(keywordMask, 16)
+                nbKeywords += 1
+
+            Clrproviders.write("\n")
+            Clrproviders.write('EXTERN_C __declspec(selectany) PROVIDER_CONTEXT ' + providerSymbol + '_Context = { W("' + providerName + '"), 0, false, 0 };\n')
+
+            for eventNode in providerNode.getElementsByTagName('event'):
+                levelName = eventNode.getAttribute('level')
+                symbolName = eventNode.getAttribute('symbol')
+                keywords = eventNode.getAttribute('keywords')
+                level = convertToLevelId(levelName)
+                Clrproviders.write("EXTERN_C __declspec(selectany) EVENT_DESCRIPTOR const " + symbolName + " = { " + str(level) + ", " + hex(getKeywordsMaskCombined(keywords, keywordsToMask)) + " };\n")
+
+
+            allProviders.append("&" + providerSymbol + "_Context")
+            nbProviders += 1
+        Clrproviders.write("#define NB_PROVIDERS " + str(nbProviders) + "\n")
+        Clrproviders.write("EXTERN_C __declspec(selectany) PROVIDER_CONTEXT * const ALL_PROVIDERS_CONTEXT[NB_PROVIDERS] = {")
+        Clrproviders.write(", ".join(allProviders))
+        Clrproviders.write(" };\n")
 
 
     clreventpipewriteevents = os.path.join(incDir, "clreventpipewriteevents.h")
