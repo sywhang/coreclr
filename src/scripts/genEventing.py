@@ -263,7 +263,7 @@ def parseTemplateNodes(templateNodes):
 
     return allTemplates
 
-def generateClrallEvents(eventNodes,allTemplates):
+def generateClrallEvents(eventNodes,allTemplates,write_xplatheader):
     clrallEvents = []
     for eventNode in eventNodes:
         eventName    = eventNode.getAttribute('symbol')
@@ -273,8 +273,11 @@ def generateClrallEvents(eventNodes,allTemplates):
         clrallEvents.append("inline BOOL EventEnabled")
         clrallEvents.append(eventName)
         clrallEvents.append("() {return ")
-        clrallEvents.append("EventPipeEventEnabled" + eventName + "() || ")
-        clrallEvents.append("(XplatEventLogger::IsEventLoggingEnabled() && EventXplatEnabled" + eventName + "());}\n\n")
+        clrallEvents.append("EventPipeEventEnabled" + eventName + "()")
+        if write_xplatheader:
+            clrallEvents.append(" || (XplatEventLogger::IsEventLoggingEnabled() && EventXplatEnabled" + eventName + "());}\n\n")
+        else:
+            clrallEvents.append(";}\n\n")
         #generate FireEtw functions
         fnptype     = []
         fnbody      = []
@@ -552,77 +555,81 @@ def generatePlatformIndependentFiles(sClrEtwAllMan, incDir, etmDummyFile, extern
             eventNodes = providerNode.getElementsByTagName('event')
 
             #vm header:
-            Clrallevents.write(generateClrallEvents(eventNodes, allTemplates) + "\n")
+            Clrallevents.write(generateClrallEvents(eventNodes, allTemplates, write_xplatheader) + "\n")
     
     clrproviders = os.path.join(incDir, "clrproviders.h")
     with open_for_update(clrproviders) as Clrproviders:
-        Clrproviders.write("""
-typedef struct _PROVIDER_KEYWORD
-{
-    WCHAR const * Name;
-    ULONGLONG const mask;
-} PROVIDER_KEYWORD;
-typedef struct _LTTNG_PROVIDER_CONTEXT
-{
-    WCHAR const * Name;
-    UCHAR Level;
-    bool IsEnabled;
-    ULONGLONG EnabledKeywordsBitmask;
-} LTTNG_PROVIDER_CONTEXT;
-typedef struct _EVENT_DESCRIPTOR
-{
-    int const Level;
-    ULONGLONG const KeywordsBitmask;
-} EVENT_DESCRIPTOR;
-
-#if !defined(DOTNET_TRACE_CONTEXT_DEF)
-#define DOTNET_TRACE_CONTEXT_DEF
-typedef struct _DOTNET_TRACE_CONTEXT
-{
-    LTTNG_PROVIDER_CONTEXT lttngProvider;
-} DOTNET_TRACE_CONTEXT, *PDOTNET_TRACE_CONTEXT;
-#endif // DOTNET_TRACE_CONTEXT_DEF
-
-""")
-        allProviders = []
-        nbProviders = 0
-        for providerNode in tree.getElementsByTagName('provider'):
-            keywords = []
-            keywordsToMask = {}
-            providerName = str(providerNode.getAttribute('name'))
-            providerSymbol = str(providerNode.getAttribute('symbol'))
-            nbKeywords = 0
-
-            Clrproviders.write("// Keywords\n");
-            for keywordNode in providerNode.getElementsByTagName('keyword'):
-                keywordName = keywordNode.getAttribute('name')
-                keywordMask = keywordNode.getAttribute('mask')
-                keywordSymbol = keywordNode.getAttribute('symbol')
-                Clrproviders.write("#define " + keywordSymbol + " " + keywordMask + "\n")
-
-                keywords.append("{ \"" + keywordName + "\", " + keywordMask + " }")
-                keywordsToMask[keywordName] = int(keywordMask, 16)
-                nbKeywords += 1
-
-            Clrproviders.write("\n")
-            Clrproviders.write('EXTERN_C __declspec(selectany) LTTNG_PROVIDER_CONTEXT ' + providerSymbol + '_LTTNG_Context = { W("' + providerName + '"), 0, false, 0 };\n')
-
-            for eventNode in providerNode.getElementsByTagName('event'):
-                levelName = eventNode.getAttribute('level')
-                symbolName = eventNode.getAttribute('symbol')
-                keywords = eventNode.getAttribute('keywords')
-                level = convertToLevelId(levelName)
-                Clrproviders.write("EXTERN_C __declspec(selectany) EVENT_DESCRIPTOR const " + symbolName + " = { " + str(level) + ", " + hex(getKeywordsMaskCombined(keywords, keywordsToMask)) + " };\n")
 
 
-            Clrproviders.write("EXTERN_C __declspec(selectany) DOTNET_TRACE_CONTEXT const " + providerSymbol + "_DOTNET_Context = { " + providerSymbol+"_LTTNG_Context };\n");
+        # Write struct definitions for X-plat scenarios
+        if write_xplatheader:
+            Clrproviders.write("""
+    typedef struct _PROVIDER_KEYWORD
+    {
+        WCHAR const * Name;
+        ULONGLONG const mask;
+    } PROVIDER_KEYWORD;
+    typedef struct _LTTNG_PROVIDER_CONTEXT
+    {
+        WCHAR const * Name;
+        UCHAR Level;
+        bool IsEnabled;
+        ULONGLONG EnabledKeywordsBitmask;
+    } LTTNG_PROVIDER_CONTEXT;
+    typedef struct _EVENT_DESCRIPTOR
+    {
+        int const Level;
+        ULONGLONG const KeywordsBitmask;
+    } EVENT_DESCRIPTOR;
 
-            allProviders.append(providerSymbol + "_DOTNET_Context")
-            nbProviders += 1
-        Clrproviders.write("#define NB_PROVIDERS " + str(nbProviders) + "\n")
-        Clrproviders.write("EXTERN_C __declspec(selectany) DOTNET_TRACE_CONTEXT ALL_PROVIDERS_CONTEXT[NB_PROVIDERS] = {")
-        Clrproviders.write(", ".join(allProviders))
-        Clrproviders.write(" };\n")
+    #if !defined(DOTNET_TRACE_CONTEXT_DEF)
+    #define DOTNET_TRACE_CONTEXT_DEF
+    typedef struct _DOTNET_TRACE_CONTEXT
+    {
+        LTTNG_PROVIDER_CONTEXT lttngProvider;
+    } DOTNET_TRACE_CONTEXT, *PDOTNET_TRACE_CONTEXT;
+    #endif // DOTNET_TRACE_CONTEXT_DEF
+
+    """)
+            allProviders = []
+            nbProviders = 0
+            for providerNode in tree.getElementsByTagName('provider'):
+                keywords = []
+                keywordsToMask = {}
+                providerName = str(providerNode.getAttribute('name'))
+                providerSymbol = str(providerNode.getAttribute('symbol'))
+                nbKeywords = 0
+
+                Clrproviders.write("// Keywords\n");
+                for keywordNode in providerNode.getElementsByTagName('keyword'):
+                    keywordName = keywordNode.getAttribute('name')
+                    keywordMask = keywordNode.getAttribute('mask')
+                    keywordSymbol = keywordNode.getAttribute('symbol')
+                    Clrproviders.write("#define " + keywordSymbol + " " + keywordMask + "\n")
+
+                    keywords.append("{ \"" + keywordName + "\", " + keywordMask + " }")
+                    keywordsToMask[keywordName] = int(keywordMask, 16)
+                    nbKeywords += 1
+
+                Clrproviders.write("\n")
+                Clrproviders.write('EXTERN_C __declspec(selectany) LTTNG_PROVIDER_CONTEXT ' + providerSymbol + '_LTTNG_Context = { W("' + providerName + '"), 0, false, 0 };\n')
+
+                for eventNode in providerNode.getElementsByTagName('event'):
+                    levelName = eventNode.getAttribute('level')
+                    symbolName = eventNode.getAttribute('symbol')
+                    keywords = eventNode.getAttribute('keywords')
+                    level = convertToLevelId(levelName)
+                    Clrproviders.write("EXTERN_C __declspec(selectany) EVENT_DESCRIPTOR const " + symbolName + " = { " + str(level) + ", " + hex(getKeywordsMaskCombined(keywords, keywordsToMask)) + " };\n")
+
+
+                Clrproviders.write("EXTERN_C __declspec(selectany) DOTNET_TRACE_CONTEXT const " + providerSymbol + "_DOTNET_Context = { " + providerSymbol+"_LTTNG_Context };\n");
+
+                allProviders.append(providerSymbol + "_DOTNET_Context")
+                nbProviders += 1
+            Clrproviders.write("#define NB_PROVIDERS " + str(nbProviders) + "\n")
+            Clrproviders.write("EXTERN_C __declspec(selectany) DOTNET_TRACE_CONTEXT ALL_PROVIDERS_CONTEXT[NB_PROVIDERS] = {")
+            Clrproviders.write(", ".join(allProviders))
+            Clrproviders.write(" };\n")
 
 
 

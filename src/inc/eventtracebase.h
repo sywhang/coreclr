@@ -230,7 +230,7 @@ public:
 };
 #endif // defined(FEATURE_PERFTRACING)
 
-#if defined(FEATURE_EVENT_TRACE) || defined(FEATURE_EVENTSOURCE_XPLAT)
+#if defined(FEATURE_PAL) && (defined(FEATURE_EVENT_TRACE) || defined(FEATURE_EVENTSOURCE_XPLAT))
 
 #define KEYWORDZERO 0x0
 
@@ -497,7 +497,7 @@ class XplatEventLogger
         }
 };
 
-#endif //defined(FEATURE_EVENT_TRACE)
+#endif // defined(FEATURE_PAL) && (defined(FEATURE_EVENT_TRACE) || defined(FEATURE_EVENTSOURCE_XPLAT))
 
 #if defined(FEATURE_EVENT_TRACE)
 
