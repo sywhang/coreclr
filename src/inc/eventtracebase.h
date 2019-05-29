@@ -459,7 +459,7 @@ class XplatEventLogger
             }
 
             LPWSTR xplatEventConfig = nullptr;
-            CLRConfig::GetConfigValue(CLRConfig::EXTERNAL_EventLoggerConfig, &xplatEventConfig);
+            CLRConfig::GetConfigValue(CLRConfig::EXTERNAL_LTTngConfig, &xplatEventConfig);
 
             auto configuration = XplatEventLoggerConfiguration();
             configuration.Initialize(xplatEventConfig);
