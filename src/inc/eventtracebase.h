@@ -246,9 +246,8 @@ public:
 #define TRACE_LEVEL_VERBOSE     5   // Detailed traces from intermediate steps
 
 #include "clrproviders.h"
-
-
 #include "clrconfig.h"
+
 class XplatEventLoggerConfiguration
 {
     public:
@@ -313,6 +312,7 @@ class XplatEventLoggerConfiguration
                 _provider = W("*");
                 _enabledKeywords =  (ULONGLONG)(-1);
                 _level  = TRACE_LEVEL_VERBOSE;
+                _isValid = true;
                 return;
             }
 
@@ -352,13 +352,14 @@ class XplatEventLoggerConfiguration
             static ConfigDWORD configEventLogging;
             return configEventLogging.val(CLRConfig::EXTERNAL_EnableEventLog);
         }
+
         LPCWSTR ParseProviderName(ComponentSpan const & component) const
         {
             auto providerName = (WCHAR*)nullptr;
             if ((component.End - component.Start) != 0)
             {
                 auto const length = component.End - component.Start;
-                providerName = new WCHAR[length + 1];
+                providerName = new(nothrow)WCHAR[length + 1];
                 memset(providerName, '\0', (length + 1) * sizeof(WCHAR));
                 wcsncpy(providerName, component.Start, length);
             }
@@ -450,6 +451,21 @@ class XplatEventLoggerController
 class XplatEventLogger
 {
     public:
+        static void Initialize()
+        {
+            if (!IsEventLoggingEnabled())
+            {
+                return;
+            }
+
+            LPWSTR xplatEventConfig = nullptr;
+            CLRConfig::GetConfigValue(CLRConfig::EXTERNAL_EventLoggerConfig, &xplatEventConfig);
+
+            auto configuration = XplatEventLoggerConfiguration();
+            configuration.Initialize(xplatEventConfig);
+
+            XplatEventLoggerController::Initialize(configuration);
+        }
 
         inline static BOOL IsEventLoggingEnabled()
         {
@@ -459,19 +475,23 @@ class XplatEventLogger
 
         inline static bool IsProviderEnabled(DOTNET_TRACE_CONTEXT providerCtx)
         {
-            if (!IsInitialized())
+    /* FIXME: this keeps giving linker error
+            if (!_initialized)
             {
                 return false;
             }
+    */
             return providerCtx.lttngProvider.IsEnabled;
         }
 
         inline static bool IsKeywordEnabled(DOTNET_TRACE_CONTEXT providerCtx, UCHAR level, ULONGLONG keyword)
         {
-            if (!IsInitialized())
+    /* FIXME: this keeps giving linker error
+            if (!_initialized)
             {
                 return false;
             }
+    */
 
             if (!providerCtx.lttngProvider.IsEnabled)
             {
@@ -489,29 +509,7 @@ class XplatEventLogger
             return false;
         }
 
-    private:
-
-        static bool IsInitialized()
-        {
-            static bool initialize = InitializeLogger();
-            return initialize;
-        }
-
-        static bool InitializeLogger()
-        {
-            if (!IsEventLoggingEnabled())
-            {
-                return false;
-            }
-
-            LPWSTR xplatEventConfig = NULL;
-
-            auto configuration = XplatEventLoggerConfiguration();
-            configuration.Initialize(xplatEventConfig);
-
-            XplatEventLoggerController::Initialize(configuration);
-            return configuration.IsValid();
-        }
+        //static bool _initialized;
 };
 
 #endif //defined(FEATURE_EVENT_TRACE)

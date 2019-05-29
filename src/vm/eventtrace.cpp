@@ -4117,6 +4117,10 @@ void InitializeEventTracing()
     }
     CONTRACTL_END;
 
+#if defined(FEATURE_PAL)
+    XplatEventLogger::Initialize();
+#endif
+
     // Do startup-only initialization of any state required by the ETW classes before
     // events can be fired
     HRESULT hr = ETW::TypeSystemLog::PreRegistrationInit();
