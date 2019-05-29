@@ -475,24 +475,11 @@ class XplatEventLogger
 
         inline static bool IsProviderEnabled(DOTNET_TRACE_CONTEXT providerCtx)
         {
-    /* FIXME: this keeps giving linker error
-            if (!_initialized)
-            {
-                return false;
-            }
-    */
             return providerCtx.lttngProvider.IsEnabled;
         }
 
         inline static bool IsKeywordEnabled(DOTNET_TRACE_CONTEXT providerCtx, UCHAR level, ULONGLONG keyword)
         {
-    /* FIXME: this keeps giving linker error
-            if (!_initialized)
-            {
-                return false;
-            }
-    */
-
             if (!providerCtx.lttngProvider.IsEnabled)
             {
                 return false;
@@ -508,8 +495,6 @@ class XplatEventLogger
 
             return false;
         }
-
-        //static bool _initialized;
 };
 
 #endif //defined(FEATURE_EVENT_TRACE)
