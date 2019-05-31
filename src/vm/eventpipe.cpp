@@ -221,6 +221,11 @@ void EventPipe::Shutdown()
     EX_CATCH {}
     EX_END_CATCH(SwallowAllExceptions);
 
+    // Remove EventPipeEventSource first since it tries to use the data structures being removed below.
+    // NOTE: The call to Disable() tries to write to this.
+    delete s_pEventSource;
+    s_pEventSource = NULL;
+
     // Save pointers to the configuration and buffer manager.
     EventPipeConfiguration *pConfig = s_pConfig;
     EventPipeBufferManager *pBufferManager = s_pBufferManager;
@@ -234,8 +239,6 @@ void EventPipe::Shutdown()
     // Free resources.
     delete pConfig;
     delete pBufferManager;
-    delete s_pEventSource;
-    s_pEventSource = NULL;
 
 }
 
