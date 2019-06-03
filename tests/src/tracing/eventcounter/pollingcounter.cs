@@ -19,13 +19,21 @@ namespace BasicEventSourceTests
         [EventSource(Name = "SimpleEventSource")]
         private sealed class SimpleEventSource : EventSource
         {
+/*
             private object _failureCounter;
             private object _successCounter;
+*/
+            private PollingCounter _failureCounter;
+            private PollingCounter _successCounter;
 
             public SimpleEventSource(Func<double> getMockedCount, Func<double> getSuccessCount, Type PollingCounterType)
             {
+/*
                 _failureCounter = Activator.CreateInstance(PollingCounterType, "failureCount", this, getSuccessCount);
                 _successCounter = Activator.CreateInstance(PollingCounterType, "successCount", this, getMockedCount);
+*/
+                _failureCounter = new PollingCounter("successCount", this, getSuccessCount);
+                _successCounter = new PollingCounter("successCount", this, getMockedCount);
             }
         }
 
