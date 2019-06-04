@@ -448,6 +448,8 @@ class XplatEventLoggerController
         }
 };
 
+extern "C" BOOL IsLttngKeywordEnabled(LTTNG_PROVIDER_CONTEXT lttngCtx, UCHAR level, ULONGLONG keyword);
+
 class XplatEventLogger
 {
     public:
@@ -478,8 +480,13 @@ class XplatEventLogger
             return providerCtx.lttngProvider.IsEnabled;
         }
 
-        inline static bool IsKeywordEnabled(DOTNET_TRACE_CONTEXT providerCtx, UCHAR level, ULONGLONG keyword)
+        static bool IsKeywordEnabled(DOTNET_TRACE_CONTEXT providerCtx, UCHAR level, ULONGLONG keyword)
         {
+            if (IsLttngKeywordEnabled(providerCtx.lttngProvider, level, keyword))
+            {
+                return true;
+            }
+
             if (!providerCtx.lttngProvider.IsEnabled)
             {
                 return false;

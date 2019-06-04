@@ -591,6 +591,7 @@ def generatePlatformIndependentFiles(sClrEtwAllMan, incDir, etmDummyFile, extern
     } DOTNET_TRACE_CONTEXT, *PDOTNET_TRACE_CONTEXT;
     #endif // DOTNET_TRACE_CONTEXT_DEF
 
+#include "clrxplatevents.h"
     """)
             allProviders = []
             # this maps provider => keyword => level => event
@@ -628,7 +629,8 @@ def generatePlatformIndependentFiles(sClrEtwAllMan, incDir, etmDummyFile, extern
                     keywords = eventNode.getAttribute('keywords')
                     level = convertToLevelId(levelName)
                     Clrproviders.write("EXTERN_C __declspec(selectany) EVENT_DESCRIPTOR const " + symbolName + " = { " + str(level) + ", " + hex(getKeywordsMaskCombined(keywords, keywordsToMask)) + " };\n")
-            
+                    Clrproviders.write('EXTERN_C BOOL EventXplatEnabled' + symbolName + "();\n")
+ 
                     if keywords == '':
                         continue
 
@@ -648,10 +650,10 @@ def generatePlatformIndependentFiles(sClrEtwAllMan, incDir, etmDummyFile, extern
             
             # Write out helper method that checks whether provider/keyword/level combination is enabled
             Clrproviders.write("""
-#ifdef DEF_LTTNG_KEYWORD_ENABLED
+#ifndef DEF_LTTNG_KEYWORD_ENABLED
 #define DEF_LTTNG_KEYWORD_ENABLED
-extern "C" BOOL IsLttngKeywordEnabled(LTTNG_PROVIDER_CONTEXT context, UCHAR level, ULONGLONG keyword)
-    {
+EXTERN_C BOOL IsLttngKeywordEnabled(LTTNG_PROVIDER_CONTEXT context, UCHAR level, ULONGLONG keyword)
+{
 """)
             firstProv = True
             for provIdx in providerToKeywordMap:
@@ -664,10 +666,10 @@ extern "C" BOOL IsLttngKeywordEnabled(LTTNG_PROVIDER_CONTEXT context, UCHAR leve
                 firstKeyword = True
                 for keyword in providerToKeywordMap[provIdx]:
                     if firstKeyword:
-                        Clrproviders.write("       if (keyword & " + hex(getKeywordsMaskCombined(keyword, keywordMaskMap[provIdx])) + " > 0)\n")
+                        Clrproviders.write("       if ((keyword & " + hex(getKeywordsMaskCombined(keyword, keywordMaskMap[provIdx])) + ") > 0)\n")
                         firstKeyword = False
                     else:
-                        Clrproviders.write("        else if (keyword & " + hex(getKeywordsMaskCombined(keyword, keywordMaskMap[provIdx])) + " > 0)\n")
+                        Clrproviders.write("        else if ((keyword & " + hex(getKeywordsMaskCombined(keyword, keywordMaskMap[provIdx])) + ") > 0)\n")
                     Clrproviders.write("        {\n")
                     firstLevel = True
                     for level in providerToKeywordMap[provIdx][keyword]:
@@ -683,8 +685,8 @@ extern "C" BOOL IsLttngKeywordEnabled(LTTNG_PROVIDER_CONTEXT context, UCHAR leve
                     Clrproviders.write("        }\n")
                 Clrproviders.write("    }\n")
             Clrproviders.write("""
-        return false; // for anything that doesn't match.
-    }
+    return false; // for anything that doesn't match.
+}
 #endif // DEF_LTTNG_KEYWORD_ENABLED
 """)
 
