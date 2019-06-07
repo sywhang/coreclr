@@ -556,7 +556,10 @@ def generatePlatformIndependentFiles(sClrEtwAllMan, incDir, etmDummyFile, extern
 
             #vm header:
             Clrallevents.write(generateClrallEvents(eventNodes, allTemplates, write_xplatheader) + "\n")
-    
+
+    providerToKeywordMap = {}
+    keywordMaskMap = {}
+   
     clrproviders = os.path.join(incDir, "clrproviders.h")
     with open_for_update(clrproviders) as Clrproviders:
 
@@ -597,8 +600,6 @@ def generatePlatformIndependentFiles(sClrEtwAllMan, incDir, etmDummyFile, extern
             # this maps provider => keyword => level => event
             # it's used to create helper method that checks whether provider/keyword/level combination
             # is enabled by using appropriate event's LTTng probe
-            providerToKeywordMap = {}
-            keywordMaskMap = {}
             nbProviders = 0
             for providerNode in tree.getElementsByTagName('provider'):
                 keywords = []
@@ -648,48 +649,6 @@ def generatePlatformIndependentFiles(sClrEtwAllMan, incDir, etmDummyFile, extern
             Clrproviders.write(", ".join(allProviders))
             Clrproviders.write(" };\n")
             
-            # Write out helper method that checks whether provider/keyword/level combination is enabled
-            Clrproviders.write("""
-#ifndef DEF_LTTNG_KEYWORD_ENABLED
-#define DEF_LTTNG_KEYWORD_ENABLED
-EXTERN_C BOOL IsLttngKeywordEnabled(LTTNG_PROVIDER_CONTEXT context, UCHAR level, ULONGLONG keyword)
-{
-""")
-            firstProv = True
-            for provIdx in providerToKeywordMap:
-                if provIdx == 0:
-                    Clrproviders.write("    if (context.provIdx == " + str(provIdx) + ")\n")
-                    firstProv = False
-                else:
-                    Clrproviders.write("    else if (context.provIdx == " + str(provIdx) + ")\n")
-                Clrproviders.write("    {\n")
-                firstKeyword = True
-                for keyword in providerToKeywordMap[provIdx]:
-                    if firstKeyword:
-                        Clrproviders.write("       if ((keyword & " + hex(getKeywordsMaskCombined(keyword, keywordMaskMap[provIdx])) + ") > 0)\n")
-                        firstKeyword = False
-                    else:
-                        Clrproviders.write("        else if ((keyword & " + hex(getKeywordsMaskCombined(keyword, keywordMaskMap[provIdx])) + ") > 0)\n")
-                    Clrproviders.write("        {\n")
-                    firstLevel = True
-                    for level in providerToKeywordMap[provIdx][keyword]:
-                        if firstLevel:
-                            Clrproviders.write("            if (level == " + str(level) + ")\n")
-                            firstLevel = False
-                        else:
-                            Clrproviders.write("            else if (level == " + str(level) + ")\n")
-                        Clrproviders.write("            {\n")
-                        symbolName = providerToKeywordMap[provIdx][keyword][level]
-                        Clrproviders.write("                return EventXplatEnabled" + symbolName + "();\n")
-                        Clrproviders.write("            }\n")
-                    Clrproviders.write("        }\n")
-                Clrproviders.write("    }\n")
-            Clrproviders.write("""
-    return false; // for anything that doesn't match.
-}
-#endif // DEF_LTTNG_KEYWORD_ENABLED
-""")
-
 
     clreventpipewriteevents = os.path.join(incDir, "clreventpipewriteevents.h")
     with open_for_update(clreventpipewriteevents) as Clreventpipewriteevents:
@@ -716,6 +675,7 @@ EXTERN_C BOOL IsLttngKeywordEnabled(LTTNG_PROVIDER_CONTEXT context, UCHAR level,
 
                 #pal: create clrallevents.h
                 Clrxplatevents.write(generateClrXplatEvents(eventNodes, allTemplates, extern) + "\n")
+
 
 import argparse
 import sys

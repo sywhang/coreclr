@@ -245,6 +245,7 @@ public:
 #define TRACE_LEVEL_INFORMATION 4   // Includes non-error cases such as Entry-Exit
 #define TRACE_LEVEL_VERBOSE     5   // Detailed traces from intermediate steps
 
+#define DEF_LTTNG_KEYWORD_ENABLED 1
 #include "clrproviders.h"
 #include "clrconfig.h"
 
@@ -264,7 +265,6 @@ class XplatEventLoggerConfiguration
 
         ~XplatEventLoggerConfiguration()
         {
-            delete[] _provider;
             _provider = nullptr;
         }
 
@@ -448,8 +448,6 @@ class XplatEventLoggerController
         }
 };
 
-extern "C" BOOL IsLttngKeywordEnabled(LTTNG_PROVIDER_CONTEXT lttngCtx, UCHAR level, ULONGLONG keyword);
-
 class XplatEventLogger
 {
     public:
@@ -482,11 +480,6 @@ class XplatEventLogger
 
         static bool IsKeywordEnabled(DOTNET_TRACE_CONTEXT providerCtx, UCHAR level, ULONGLONG keyword)
         {
-            if (IsLttngKeywordEnabled(providerCtx.lttngProvider, level, keyword))
-            {
-                return true;
-            }
-
             if (!providerCtx.lttngProvider.IsEnabled)
             {
                 return false;
