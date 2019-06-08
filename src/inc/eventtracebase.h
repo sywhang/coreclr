@@ -107,7 +107,7 @@ enum EtwThreadFlags
 #define ETW_CATEGORY_ENABLED(Context, Level, Keyword) (EventPipeHelper::Enabled() || \
         (XplatEventLogger::IsEventLoggingEnabled() && XplatEventLogger::IsKeywordEnabled(Context, Level, Keyword)))
 #define ETW_TRACING_ENABLED(Context, EventDescriptor) (EventEnabled##EventDescriptor())
-#define ETW_TRACING_CATEGORY_ENABLED(Context, Level, Keyword) (EventPipeHelper::Enabled() || \
+#define ETW_TRACING_CATEGORY_ENABLED(Context, Level, Keyword) (EventPipeHelper::IsKeywordEnabled(Context, Level, Keyword) || \
         (XplatEventLogger::IsEventLoggingEnabled() && ETW_CATEGORY_ENABLED(Context, Level, Keyword)))
 #define ETW_PROVIDER_ENABLED(ProviderSymbol) (TRUE)
 #else //defined(FEATURE_PERFTRACING)
@@ -222,16 +222,7 @@ extern UINT32 g_nClrInstanceId;
 
 #define GetClrInstanceId()  (static_cast<UINT16>(g_nClrInstanceId))
 
-#if defined(FEATURE_PERFTRACING)
-class EventPipeHelper
-{
-public:
-    static bool Enabled();
-};
-#endif // defined(FEATURE_PERFTRACING)
-
 #if defined(FEATURE_PAL) && (defined(FEATURE_EVENT_TRACE) || defined(FEATURE_EVENTSOURCE_XPLAT))
-
 #define KEYWORDZERO 0x0
 
 /***************************************/
@@ -248,6 +239,33 @@ public:
 #define DEF_LTTNG_KEYWORD_ENABLED 1
 #include "clrproviders.h"
 #include "clrconfig.h"
+#endif  // defined(FEATURE_PAL) && (defined(FEATURE_EVENT_TRACE) || defined(FEATURE_EVENTSOURCE_XPLAT))
+
+#if defined(FEATURE_PERFTRACING)
+class EventPipeHelper
+{
+public:
+    static bool Enabled();
+    static bool IsKeywordEnabled(DOTNET_TRACE_CONTEXT providerCtx, UCHAR level, ULONGLONG keyword)
+    {
+        if (!providerCtx.eventpipeProvider.IsEnabled)
+        {
+            return false;
+        }
+
+        if ((level <= providerCtx.eventpipeProvider.Level) || (providerCtx.eventpipeProvider.Level == 0))
+        {
+            if ((keyword == 0) || ((keyword & providerCtx.eventpipeProvider.EnabledKeywordsBitmask) != 0))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+};
+#endif // defined(FEATURE_PERFTRACING)
+
+#if defined(FEATURE_PAL) && (defined(FEATURE_EVENT_TRACE) || defined(FEATURE_EVENTSOURCE_XPLAT))
 
 class XplatEventLoggerConfiguration
 {

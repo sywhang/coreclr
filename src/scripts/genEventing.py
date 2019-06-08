@@ -586,11 +586,24 @@ def generatePlatformIndependentFiles(sClrEtwAllMan, incDir, etmDummyFile, extern
         ULONGLONG const KeywordsBitmask;
     } EVENT_DESCRIPTOR;
 
+    #if !defined(EVENTPIPE_TRACE_CONTEXT_DEF)
+    #define EVENTPIPE_TRACE_CONTEXT_DEF
+    typedef struct _EVENTPIPE_PROVIDER_CONTEXT
+    {
+        WCHAR const * Name;
+        UCHAR Level;
+        bool IsEnabled;
+        ULONGLONG EnabledKeywordsBitmask;
+        UCHAR provIdx;
+    } EVENTPIPE_PROVIDER_CONTEXT, *PEVENTPIPE_PROVIDER_CONTEXT;
+    #endif // EVENTPIPE_TRACE_CONTEXT_DEF
+
     #if !defined(DOTNET_TRACE_CONTEXT_DEF)
     #define DOTNET_TRACE_CONTEXT_DEF
     typedef struct _DOTNET_TRACE_CONTEXT
     {
         LTTNG_PROVIDER_CONTEXT lttngProvider;
+        EVENTPIPE_PROVIDER_CONTEXT eventpipeProvider;
     } DOTNET_TRACE_CONTEXT, *PDOTNET_TRACE_CONTEXT;
     #endif // DOTNET_TRACE_CONTEXT_DEF
 
@@ -623,6 +636,7 @@ def generatePlatformIndependentFiles(sClrEtwAllMan, incDir, etmDummyFile, extern
 
                 Clrproviders.write("\n")
                 Clrproviders.write('EXTERN_C __declspec(selectany) LTTNG_PROVIDER_CONTEXT ' + providerSymbol + '_LTTNG_Context = { W("' + providerName + '"), 0, false, 0, ' + str(nbProviders) + ' };\n')
+                Clrproviders.write('EXTERN_C __declspec(selectany) EVENTPIPE_PROVIDER_CONTEXT ' + providerSymbol + '_EVENTPIPE_Context = { W("' + providerName + '"), 0, false, 0, ' + str(nbProviders) + ' };\n')
 
                 for eventNode in providerNode.getElementsByTagName('event'):
                     levelName = eventNode.getAttribute('level')
@@ -639,7 +653,7 @@ def generatePlatformIndependentFiles(sClrEtwAllMan, incDir, etmDummyFile, extern
                         keywords = keywords.split(' ')[-1]
                     providerToKeywordMap[nbProviders][keywords][level] = symbolName 
 
-                Clrproviders.write("EXTERN_C __declspec(selectany) DOTNET_TRACE_CONTEXT const " + providerSymbol + "_DOTNET_Context = { " + providerSymbol+"_LTTNG_Context };\n");
+                Clrproviders.write("EXTERN_C __declspec(selectany) DOTNET_TRACE_CONTEXT const " + providerSymbol + "_DOTNET_Context = { " + providerSymbol+"_LTTNG_Context, " + providerSymbol + "_EVENTPIPE_Context };\n");
 
                 allProviders.append(providerSymbol + "_DOTNET_Context")
                 keywordMaskMap[nbProviders] = keywordsToMask
