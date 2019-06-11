@@ -243,7 +243,7 @@ extern UINT32 g_nClrInstanceId;
 
 
 #if defined(FEATURE_PERFTRACING)
-#include "ClrEtwAll.h"
+#include "clrtracecontexts.h"
 class EventPipeHelper
 {
 public:
