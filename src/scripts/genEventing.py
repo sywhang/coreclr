@@ -607,7 +607,6 @@ def generatePlatformIndependentFiles(sClrEtwAllMan, incDir, etmDummyFile, extern
     } DOTNET_TRACE_CONTEXT, *PDOTNET_TRACE_CONTEXT;
     #endif // DOTNET_TRACE_CONTEXT_DEF
 
-#include "clrxplatevents.h"
     """)
             allProviders = []
             # this maps provider => keyword => level => event

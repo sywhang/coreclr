@@ -7526,4 +7526,24 @@ bool EventPipeHelper::Enabled()
     LIMITED_METHOD_CONTRACT;
     return EventPipe::Enabled();
 }
+
+bool IsKeywordEnabled(EVENTPIPE_PROVIDER_CONTEXT providerCtx, UCHAR level, ULONGLONG keyword)
+{
+    LIMITED_METHOD_CONTRACT;
+
+    if (!providerCtx.IsEnabled)
+    {
+        return false;
+    }
+
+    if ((level <= providerCtx.Level) || (providerCtx.Level == 0))
+    {
+        if ((keyword == 0) || ((keyword & providerCtx.EnabledKeywordsBitmask) != 0))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
 #endif // FEATURE_PERFTRACING

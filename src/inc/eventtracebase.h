@@ -241,27 +241,14 @@ extern UINT32 g_nClrInstanceId;
 #include "clrconfig.h"
 #endif  // defined(FEATURE_PAL) && (defined(FEATURE_EVENT_TRACE) || defined(FEATURE_EVENTSOURCE_XPLAT))
 
+
 #if defined(FEATURE_PERFTRACING)
+#include "ClrEtwAll.h"
 class EventPipeHelper
 {
 public:
     static bool Enabled();
-    static bool IsKeywordEnabled(DOTNET_TRACE_CONTEXT providerCtx, UCHAR level, ULONGLONG keyword)
-    {
-        if (!providerCtx.eventpipeProvider.IsEnabled)
-        {
-            return false;
-        }
-
-        if ((level <= providerCtx.eventpipeProvider.Level) || (providerCtx.eventpipeProvider.Level == 0))
-        {
-            if ((keyword == 0) || ((keyword & providerCtx.eventpipeProvider.EnabledKeywordsBitmask) != 0))
-            {
-                return true;
-            }
-        }
-        return false;
-    }
+    static bool IsKeywordEnabled(EVENTPIPE_PROVIDER_CONTEXT providerCtx, UCHAR level, ULONGLONG keyword);
 };
 #endif // defined(FEATURE_PERFTRACING)
 
