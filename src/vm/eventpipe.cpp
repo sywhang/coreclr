@@ -245,6 +245,22 @@ EventPipeSessionID EventPipe::Enable(
     }
     CONTRACTL_END;
 
+    /* TEMP HACK ALERT - PROBABLY BETTER TO ADD AN IPC COMMAND */
+    // ENABLE RUNTIME EVENT COUNTER SOURCE
+    for (uint i = 0; i < numProviders; i++)
+    {
+        const EventPipeProviderConfiguration *pConfig = &pProviders[i];
+        if (wcscmp(W("System.Runtime"), pConfig->GetProviderName()) == 0)
+        {
+            if (!GetThread())
+            {
+                SetupThread();
+            }
+            MethodDescCallSite(METHOD__RUNTIMEEVENTSOURCE__INITIALIZE).Call(NULL);
+            break;
+        }
+    }
+
     EventPipeSessionID sessionId;
     EventPipe::RunWithCallbackPostponed(
         [&](EventPipeProviderCallbackDataQueue* pEventPipeProviderCallbackDataQueue)
@@ -341,7 +357,7 @@ void EventPipe::Disable(EventPipeSessionID id)
     }
     CONTRACTL_END;
 
-    SetupThread();
+    //SetupThread();
 
     // Only perform the disable operation if the session ID
     // matches the current active session.

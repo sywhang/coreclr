@@ -10,7 +10,7 @@ namespace System.Diagnostics.Tracing
     /// RuntimeEventSource is an EventSource that represents events emitted by the managed runtime.
     /// </summary>
     [EventSource(Guid="49592C0F-5A05-516D-AA4B-A64E02026C89", Name = "System.Runtime")]
-    internal sealed class RuntimeEventSource : EventSource
+    public sealed class RuntimeEventSource : EventSource
     {
         private static RuntimeEventSource s_RuntimeEventSource;
         private PollingCounter? _gcHeapSizeCounter;

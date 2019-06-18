@@ -119,6 +119,32 @@ bool DiagnosticServer::Initialize()
         if (s_pIpc != nullptr)
         {
             DWORD dwThreadId = 0;
+
+            Thread * hThread = SetupUnstartedThread();
+            if(hThread->CreateNewThread(0, DiagnosticsServerThread, (LPVOID)s_pIpc))
+            {
+                CExecutionEngine::SetupTLSForThread(hThread);
+                hThread->SetBackground(TRUE);
+                hThread->StartThread();
+            }
+            else
+            {
+                // Failed to create IPC thread.
+                STRESS_LOG1(
+                    LF_DIAGNOSTICS_PORT,                                 // facility
+                    LL_ERROR,                                            // level
+                    "Failed to create diagnostic server thread (%d).\n", // msg
+                    ::GetLastError());
+
+                // FIXME: Maybe hold on to the thread to abort/cleanup at exit?
+                DestroyThread(hThread);
+
+                // TODO: Add error handling?
+                fSuccess = true;
+            }
+            fSuccess = true;
+
+            /*
             HANDLE hThread = ::CreateThread( // TODO: Is it correct to have this "lower" level call here?
                 nullptr,                     // no security attribute
                 0,                           // default stack size
@@ -144,6 +170,7 @@ bool DiagnosticServer::Initialize()
                 // TODO: Add error handling?
                 fSuccess = true;
             }
+            */
         }
     }
     EX_CATCH

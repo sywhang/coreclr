@@ -84,3 +84,4 @@
 #define g_ExceptionServicesNS         g_RuntimeNS ".ExceptionServices"
 
 #define g_LoaderNS         g_RuntimeNS ".Loader" 
+#define g_TracingNS        g_SystemNS ".Diagnostics.Tracing"
