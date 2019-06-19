@@ -13,6 +13,25 @@ This file is generated using the logic from <root>/src/scripts/genEventing.py
 #include "clrxplatevents.h"
 #include "clreventpipewriteevents.h"
 
+
+#if !defined(EVENTPIPE_TRACE_CONTEXT_DEF)
+#define EVENTPIPE_TRACE_CONTEXT_DEF
+typedef struct _EVENTPIPE_TRACE_CONTEXT
+{
+    WCHAR const * Name;
+    UCHAR Level;
+    bool IsEnabled;
+    ULONGLONG EnabledKeywordsBitmask;
+} EVENTPIPE_TRACE_CONTEXT, *PEVENTPIPE_TRACE_CONTEXT;
+#endif // EVENTPIPE_TRACE_CONTEXT_DEF
+
+#if !defined(DOTNET_TRACE_CONTEXT_DEF)
+#define DOTNET_TRACE_CONTEXT_DEF
+typedef struct _DOTNET_TRACE_CONTEXT
+{
+    EVENTPIPE_TRACE_CONTEXT EventPipeProvider;
+} DOTNET_TRACE_CONTEXT, *PDOTNET_TRACE_CONTEXT;
+#endif // DOTNET_TRACE_CONTEXT_DEF
 inline BOOL EventEnabledGCStart() {return EventPipeEventEnabledGCStart() || (XplatEventLogger::IsEventLoggingEnabled() && EventXplatEnabledGCStart());}
 
 inline ULONG FireEtwGCStart(
@@ -2595,6 +2614,7 @@ inline ULONG FireEtwTieredCompilationBackgroundJitStop(
 }
 
 
+EXTERN_C __declspec(selectany) EVENTPIPE_TRACE_CONTEXT MICROSOFT_WINDOWS_DOTNETRUNTIME_PROVIDER_EVENTPIPE_Context = { W("Microsoft-Windows-DotNETRuntime"), 0, false, 0 };
 inline BOOL EventEnabledCLRStackWalkDCStart() {return EventPipeEventEnabledCLRStackWalkDCStart() || (XplatEventLogger::IsEventLoggingEnabled() && EventXplatEnabledCLRStackWalkDCStart());}
 
 inline ULONG FireEtwCLRStackWalkDCStart(
@@ -3336,6 +3356,7 @@ inline ULONG FireEtwTieredCompilationSettingsDCStart(
 }
 
 
+EXTERN_C __declspec(selectany) EVENTPIPE_TRACE_CONTEXT MICROSOFT_WINDOWS_DOTNETRUNTIME_RUNDOWN_PROVIDER_EVENTPIPE_Context = { W("Microsoft-Windows-DotNETRuntimeRundown"), 0, false, 0 };
 inline BOOL EventEnabledStressLogEvent() {return EventPipeEventEnabledStressLogEvent() || (XplatEventLogger::IsEventLoggingEnabled() && EventXplatEnabledStressLogEvent());}
 
 inline ULONG FireEtwStressLogEvent(
@@ -3379,6 +3400,7 @@ inline ULONG FireEtwCLRStackWalkStress(
 }
 
 
+EXTERN_C __declspec(selectany) EVENTPIPE_TRACE_CONTEXT MICROSOFT_WINDOWS_DOTNETRUNTIME_STRESS_PROVIDER_EVENTPIPE_Context = { W("Microsoft-Windows-DotNETRuntimeStress"), 0, false, 0 };
 inline BOOL EventEnabledGCDecision() {return EventPipeEventEnabledGCDecision() || (XplatEventLogger::IsEventLoggingEnabled() && EventXplatEnabledGCDecision());}
 
 inline ULONG FireEtwGCDecision(
@@ -5676,3 +5698,12 @@ inline ULONG FireEtwObjectVariantMarshallingToManaged(
 }
 
 
+EXTERN_C __declspec(selectany) EVENTPIPE_TRACE_CONTEXT MICROSOFT_WINDOWS_DOTNETRUNTIME_PRIVATE_PROVIDER_EVENTPIPE_Context = { W("Microsoft-Windows-DotNETRuntimePrivate"), 0, false, 0 };
+
+EXTERN_C __declspec(selectany) DOTNET_TRACE_CONTEXT MICROSOFT_WINDOWS_DOTNETRUNTIME_PROVIDER_DOTNET_Context = { MICROSOFT_WINDOWS_DOTNETRUNTIME_PROVIDER_EVENTPIPE_Context };
+
+EXTERN_C __declspec(selectany) DOTNET_TRACE_CONTEXT MICROSOFT_WINDOWS_DOTNETRUNTIME_PRIVATE_PROVIDER_DOTNET_Context = { MICROSOFT_WINDOWS_DOTNETRUNTIME_PRIVATE_PROVIDER_EVENTPIPE_Context };
+
+EXTERN_C __declspec(selectany) DOTNET_TRACE_CONTEXT MICROSOFT_WINDOWS_DOTNETRUNTIME_RUNDOWN_PROVIDER_DOTNET_Context = { MICROSOFT_WINDOWS_DOTNETRUNTIME_RUNDOWN_PROVIDER_EVENTPIPE_Context };
+
+EXTERN_C __declspec(selectany) DOTNET_TRACE_CONTEXT MICROSOFT_WINDOWS_DOTNETRUNTIME_STRESS_PROVIDER_DOTNET_Context = { MICROSOFT_WINDOWS_DOTNETRUNTIME_STRESS_PROVIDER_EVENTPIPE_Context };
