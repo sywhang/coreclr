@@ -22,9 +22,9 @@ EventPipeSession::EventPipeSession(
     uint32_t circularBufferSizeInMB,
     const EventPipeProviderConfiguration *pProviders,
     uint32_t numProviders,
-    bool rundownEnabled) : m_index(index),
+    bool isRundownSession) : m_index(index),
                            m_pProviderList(new EventPipeSessionProviderList(pProviders, numProviders)),
-                           m_rundownEnabled(rundownEnabled),
+                           m_isRundownSession(isRundownSession),
                            m_SessionType(sessionType),
                            m_format(format),
                            m_rundownRequested(rundownSwitch)
@@ -435,7 +435,7 @@ void EventPipeSession::EnableRundown()
             Config.GetFilterData()));
     }
 
-    m_rundownEnabled = true;
+    m_isRundownSession = true;
 }
 
 void EventPipeSession::DisableIpcStreamingThread()

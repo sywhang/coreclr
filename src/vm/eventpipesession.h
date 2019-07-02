@@ -55,8 +55,8 @@ private:
     // Session buffer manager.
     EventPipeBufferManager * m_pBufferManager;
 
-    // True if rundown is enabled.
-    Volatile<bool> m_rundownEnabled;
+    // True if this session is a rundown session.
+    Volatile<bool> m_isRundownSession;
 
     // The type of the session.
     // This determines behavior within the system (e.g. policies around which events to drop, etc.)
@@ -143,10 +143,10 @@ public:
     }
 
     // Determine if rundown is enabled.
-    bool RundownEnabled() const
+    bool IsRundownSession() const
     {
         LIMITED_METHOD_CONTRACT;
-        return m_rundownEnabled;
+        return m_isRundownSession;
     }
 
     // Get the session start time in UTC.
