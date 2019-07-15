@@ -112,6 +112,11 @@ namespace System.Diagnostics.Tracing
             this.elementSize = elementSize;
         }
 
+        public TraceLoggingDataType GetNativeFormat()
+        {
+            return nativeFormat;
+        }
+
         public override void WriteMetadata(TraceLoggingMetadataCollector collector, string? name, EventFieldFormat format)
         {
             collector.AddArray(name!, formatFunc(format, nativeFormat));

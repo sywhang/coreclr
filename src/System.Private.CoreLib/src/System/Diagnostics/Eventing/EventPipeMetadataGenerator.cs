@@ -283,6 +283,47 @@ namespace System.Diagnostics.Tracing
                     EventPipeMetadataGenerator.WriteToBuffer(pMetadataBlob, blobSize, ref offset, (byte *)pPropertyName, ((uint)property.name.Length + 1) * 2);
                 }
             }
+            // Check if this property is an array type
+            else if (property.typeInfo is ScalarArrayTypeInfo arrayTypeInfo)
+            {
+                // Each array is serialized as:
+                //     TypeCode.ArrayTypeCode              : 4 bytes
+                //     TypeCode of Element type            : 4 bytes
+                //     Nested struct property name  : NULL-terminated string.
+
+                // Note: This doesn't exist as a TypeCode in System.TypeCode
+                const TypeCode ArrayTypeCode = (TypeCode)19; 
+                Type? elementType = property.typeInfo.DataType.GetElementType();
+                if (elementType != null)
+                {
+                    TypeCode elementTypeCode = GetTypeCodeExtended(elementType);
+
+                    // We don't support this. Bail and don't generate any metadata for this event.
+                    if (elementTypeCode == TypeCode.Object)
+                    {
+                        return false;
+                    }
+
+                    // First write the ArrayTypeCode
+                    EventPipeMetadataGenerator.WriteToBuffer(pMetadataBlob, blobSize, ref offset, (uint)ArrayTypeCode);
+
+                    // TODO: FIGURE OUT HOW TO GET NUM FIELDS HERE
+                    EventPipeMetadataGenerator.WriteToBuffer(pMetadataBlob, blobSize, ref offset, (uint)10);
+
+                    // Write the element type
+                    EventPipeMetadataGenerator.WriteToBuffer(pMetadataBlob, blobSize, ref offset, (uint)elementTypeCode);
+                    
+                    // Write the property name.
+                    fixed(char *pPropertyName = property.name)
+                    {
+                        EventPipeMetadataGenerator.WriteToBuffer(pMetadataBlob, blobSize, ref offset, (byte *)pPropertyName, ((uint)property.name.Length + 1) * 2);
+                    }
+                }
+                else
+                {
+                    return false;
+                }
+            }
             else
             {
                 // Each primitive type is serialized as:
@@ -290,7 +331,7 @@ namespace System.Diagnostics.Tracing
                 //     PropertyName : NULL-terminated string
                 TypeCode typeCode = GetTypeCodeExtended(property.typeInfo.DataType);
 
-                // EventPipe does not support this type.  Throw, which will cause no metadata to be registered for this event.
+                // EventPipe does not support this type. Return false, which will cause no metadata to be registered for this event.
                 if(typeCode == TypeCode.Object)
                 {
                     return false;
@@ -343,6 +384,12 @@ namespace System.Diagnostics.Tracing
                 // readers don't have do special case the outer-most struct.
                 ret += sizeof(char);
             }
+            else if ((int)typeCode == 19)
+            {
+                ret += sizeof(uint); // ArrayTypeCode
+                ret += sizeof(uint); // Array element TypeCode
+                ret += (int)(sizeof(uint) + ((ParameterName.Length + 1) * 2));
+            }
             else
             {
                 ret += (int)(sizeof(uint) + ((ParameterName.Length + 1) * 2));
@@ -381,6 +428,10 @@ namespace System.Diagnostics.Tracing
                 // Add the size of the property name.
                 ret += (uint)((property.name.Length + 1) * 2);
             }
+            else if (property.typeInfo is ScalarArrayTypeInfo arrayInfo)
+            {
+                ret += (uint)(sizeof(uint) * 3 + ((property.name.Length + 1) * 2));
+            }
             else
             {
                 ret += (uint)(sizeof(uint) + ((property.name.Length + 1) * 2));
@@ -394,9 +445,15 @@ namespace System.Diagnostics.Tracing
             // Guid is not part of TypeCode, we decided to use 17 to represent it, as it's the "free slot"
             // see https://github.com/dotnet/coreclr/issues/16105#issuecomment-361749750 for more
             const TypeCode GuidTypeCode = (TypeCode)17;
+            const TypeCode ArrayTypeCode = (TypeCode)19;
 
             if (parameterType == typeof(Guid)) // Guid is not a part of TypeCode enum
                 return GuidTypeCode;
+
+            if (parameterType == typeof(Array))
+            {
+                return ArrayTypeCode;
+            }
 
             // IntPtr and UIntPtr are converted to their non-pointer types.
             if (parameterType == typeof(IntPtr))

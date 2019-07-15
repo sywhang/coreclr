@@ -34,6 +34,7 @@ enum class EventPipeParameterType
     DateTime = 16,      // DateTime
     Guid = 17,          // Guid
     String = 18,        // Unicode character string
+    Array = 19,         // Array of something
 };
 
 // Contains the metadata associated with an EventPipe event parameter.
